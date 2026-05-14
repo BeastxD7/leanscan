@@ -1,0 +1,67 @@
+# Local development stack for LeanScan.
+# Brings up Postgres + the API server in one command.
+#
+# Storage in V1 is the local filesystem (no MinIO, no S3). The 'uploads'
+# named volume holds meal photos; it persists across container restarts.
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in real values
+#   2. docker compose up
+#   3. (in another terminal) docker compose exec api npm run migrate
+#   4. API is at http://localhost:3000
+#
+# Production uses Supabase Postgres via pooling URL; storage stays local
+# but on a DigitalOcean Droplet volume.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leanscan
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: leanscan_dev
+    ports:
+      # Host port 54320 → container port 5432.
+      # 5432 on the host is reserved for whatever Postgres you already have running.
+      # The API container connects to "postgres:5432" inside the docker network,
+      # unaffected by the host mapping. To connect with psql from your Mac:
+      #   psql -h localhost -p 54320 -U leanscan leanscan_dev
+      - "54320:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leanscan -d leanscan_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      # Use the build stage (all deps incl. tsx + pino-pretty) for local dev.
+      # Production deploys (Phase 7) won't go through docker-compose and will
+      # use the final stage of the same Dockerfile.
+      target: build
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://leanscan:dev@postgres:5432/leanscan_dev?schema=public
+      UPLOADS_DIR: /app/uploads
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Hot reload — bind-mount source so tsx watch picks up changes.
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      # Persistent uploads volume.
+      - uploads:/app/uploads
+    # Run dev server (tsx watch) instead of the production CMD.
+    command: npm run dev
+
+volumes:
+  pgdata:
+  uploads:

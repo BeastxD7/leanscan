@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeanScan — Protein-First Tracking for GLP-1 Users</title>
+<meta name="description" content="Snap your meal. Save your muscle. The first AI camera-based protein tracker built for Ozempic, Wegovy, Mounjaro, and Zepbound users.">
+<meta name="theme-color" content="#1a3a2e">
+
+<!-- Open Graph / Facebook -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://leanscan.app/">
+<meta property="og:title" content="LeanScan — Snap your meal. Save your muscle.">
+<meta property="og:description" content="The first AI camera-based protein tracker built for GLP-1 users. Hit your protein floor in ten seconds.">
+<meta property="og:image" content="https://leanscan.app/og.png">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="LeanScan — Snap your meal. Save your muscle.">
+<meta name="twitter:description" content="The first AI camera-based protein tracker built for GLP-1 users.">
+<meta name="twitter:image" content="https://leanscan.app/og.png">
+
+<!-- Favicon (inline SVG, amber dot on forest) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a3a2e'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23c8975b'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Analytics (replace data-domain with your real domain once registered) -->
+<script defer data-domain="leanscan.app" src="https://plausible.io/js/script.tagged-events.js"></script>
+
+<style>
+:root {
+  --forest: #1a3a2e;
+  --forest-deep: #112720;
+  --cream: #f5f1ea;
+  --cream-dark: #ebe5d6;
+  --paper: #faf7f0;
+  --charcoal: #2a2a2a;
+  --muted: #6b6b6b;
+  --amber: #c8975b;
+  --sage: #8fa899;
+  --line: rgba(26, 58, 46, 0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Manrope', sans-serif;
+  background: var(--cream);
+  color: var(--charcoal);
+  line-height: 1.6;
+  font-size: 16px;
+  overflow-x: hidden;
+}
+
+.serif { font-family: 'Fraunces', serif; font-optical-sizing: auto; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.narrow { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+nav {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: rgba(245, 241, 234, 0.92);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+}
+.nav-inner { display: flex; align-items: center; justify-content: space-between; }
+.logo {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--forest);
+}
+.logo-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--amber);
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.nav-cta {
+  background: var(--forest);
+  color: var(--cream);
+  padding: 10px 20px;
+  border-radius: 100px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.nav-cta:hover { background: var(--forest-deep); }
+
+.hero { padding: 80px 0 100px; position: relative; }
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--forest);
+  margin-bottom: 24px;
+  background: var(--paper);
+}
+.eyebrow::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+h1.headline {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1.02;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: var(--forest);
+  margin-bottom: 24px;
+}
+h1.headline em { font-style: italic; font-weight: 400; color: var(--amber); }
+.lede {
+  font-size: 19px;
+  color: var(--charcoal);
+  margin-bottom: 32px;
+  max-width: 480px;
+  line-height: 1.55;
+}
+.hero-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+.email-form {
+  display: flex;
+  gap: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 6px;
+  max-width: 440px;
+  width: 100%;
+}
+.email-form input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 12px 18px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--charcoal);
+  outline: none;
+}
+.email-form button {
+  background: var(--forest);
+  color: var(--cream);
+  border: none;
+  padding: 12px 24px;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.email-form button:hover:not(:disabled) { background: var(--forest-deep); }
+.email-form button:disabled { opacity: 0.7; cursor: not-allowed; }
+.form-status {
+  font-size: 13px;
+  margin-top: 10px;
+  min-height: 18px;
+  color: var(--forest);
+}
+.form-status.error { color: #b85850; }
+.hero-meta { font-size: 13px; color: var(--muted); margin-top: 12px; }
+.hero-meta strong { color: var(--forest); font-weight: 600; }
+
+/* Phone Mockup */
+.phone-frame {
+  width: 280px;
+  height: 580px;
+  background: var(--forest-deep);
+  border-radius: 40px;
+  padding: 12px;
+  margin: 0 auto;
+  box-shadow:
+    0 25px 60px -15px rgba(26, 58, 46, 0.35),
+    0 10px 20px -10px rgba(26, 58, 46, 0.2);
+  position: relative;
+}
+.phone-screen {
+  width: 100%;
+  height: 100%;
+  background: var(--paper);
+  border-radius: 30px;
+  overflow: hidden;
+  position: relative;
+  padding: 24px 20px;
+}
+.phone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.phone-greeting {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--forest);
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+.phone-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+.protein-ring {
+  background: var(--forest);
+  color: var(--cream);
+  border-radius: 24px;
+  padding: 20px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.ring-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+.ring-value {
+  font-family: 'Fraunces', serif;
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.ring-value span { font-size: 14px; opacity: 0.6; font-weight: 400; }
+.ring-bar {
+  height: 6px;
+  background: rgba(245, 241, 234, 0.2);
+  border-radius: 100px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+.ring-bar-fill { height: 100%; width: 78%; background: var(--amber); border-radius: 100px; }
+.meal-card {
+  background: var(--cream-dark);
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.meal-name { font-size: 13px; font-weight: 500; }
+.meal-protein { font-size: 12px; color: var(--forest); font-weight: 600; }
+.scan-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 56px;
+  background: var(--amber);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px -4px rgba(200, 151, 91, 0.4);
+}
+.scan-btn::before {
+  content: '';
+  width: 24px; height: 24px;
+  border: 2.5px solid var(--paper);
+  border-radius: 6px;
+}
+.scan-btn::after {
+  content: '';
+  position: absolute;
+  width: 8px; height: 8px;
+  background: var(--paper);
+  border-radius: 50%;
+}
+
+.stat-section { padding: 80px 0; background: var(--forest); color: var(--cream); }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 60px; }
+.stat-block { border-left: 1px solid rgba(245, 241, 234, 0.15); padding-left: 24px; }
+.stat-number {
+  font-family: 'Fraunces', serif;
+  font-size: 72px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--amber);
+  margin-bottom: 8px;
+}
+.stat-number sup { font-size: 28px; vertical-align: super; opacity: 0.6; }
+.stat-label { font-size: 14px; color: rgba(245, 241, 234, 0.7); line-height: 1.5; }
+.stat-cite { font-size: 11px; color: rgba(245, 241, 234, 0.4); margin-top: 8px; font-style: italic; }
+
+.section { padding: 100px 0; border-bottom: 1px solid var(--line); }
+.section-eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--amber);
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+h2.section-title {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(32px, 4.5vw, 52px);
+  line-height: 1.05;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: var(--forest);
+  margin-bottom: 32px;
+  max-width: 720px;
+}
+h2.section-title em { font-style: italic; color: var(--amber); }
+.section-lede { font-size: 18px; max-width: 640px; margin-bottom: 64px; color: var(--charcoal); }
+
+.problem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 48px; margin-top: 48px; }
+.problem-card {
+  padding: 32px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.problem-num {
+  font-family: 'Fraunces', serif;
+  font-size: 14px;
+  color: var(--amber);
+  margin-bottom: 16px;
+  letter-spacing: 0.1em;
+}
+.problem-title {
+  font-family: 'Fraunces', serif;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--forest);
+  margin-bottom: 12px;
+  letter-spacing: -0.02em;
+}
+.problem-text { color: var(--muted); font-size: 15px; line-height: 1.6; }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 48px; }
+.step {
+  position: relative;
+  padding: 32px 24px 24px;
+  background: var(--paper);
+  border-radius: 20px;
+  border: 1px solid var(--line);
+}
+.step-num {
+  position: absolute;
+  top: -20px;
+  left: 24px;
+  font-family: 'Fraunces', serif;
+  font-size: 48px;
+  font-weight: 500;
+  color: var(--amber);
+  background: var(--cream);
+  padding: 0 12px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.step-title {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  color: var(--forest);
+  font-weight: 500;
+  margin-bottom: 12px;
+  margin-top: 8px;
+  letter-spacing: -0.02em;
+}
+.step-text { color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+.compare-section { padding: 100px 0; background: var(--cream-dark); border-top: 1px solid var(--line); }
+.compare-table {
+  background: var(--paper);
+  border-radius: 24px;
+  overflow: hidden;
+  margin-top: 48px;
+  border: 1px solid var(--line);
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+}
+.compare-row:last-child { border-bottom: none; }
+.compare-header { background: var(--forest); color: var(--cream); }
+.compare-header .col { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 500; }
+.col-feature { font-size: 14px; font-weight: 500; color: var(--forest); }
+.compare-header .col-feature { color: var(--cream); }
+.col-other { font-size: 13px; color: var(--muted); }
+.col-ours { font-size: 13px; color: var(--forest); font-weight: 600; }
+.check { color: var(--amber); margin-right: 6px; }
+.cross { color: #b85850; margin-right: 6px; }
+.compare-footnote {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 16px;
+  font-style: italic;
+  text-align: center;
+}
+
+.pricing-section { padding: 100px 0; }
+.price-card {
+  background: var(--forest);
+  color: var(--cream);
+  border-radius: 32px;
+  padding: 48px;
+  max-width: 480px;
+  margin: 48px auto 0;
+  text-align: center;
+  position: relative;
+}
+.price-badge {
+  display: inline-block;
+  background: var(--amber);
+  color: var(--forest-deep);
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 24px;
+}
+.price-amount {
+  font-family: 'Fraunces', serif;
+  font-size: 64px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.price-amount sup { font-size: 24px; opacity: 0.6; vertical-align: super; }
+.price-amount span { font-size: 18px; opacity: 0.6; font-weight: 400; }
+.price-sub { font-size: 14px; opacity: 0.7; margin-bottom: 24px; }
+.price-features { list-style: none; text-align: left; margin: 32px 0; }
+.price-features li {
+  padding: 8px 0;
+  font-size: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.price-features li::before {
+  content: '✓';
+  color: var(--amber);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.price-features li.v2-feature::before { content: '◔'; }
+.price-cta {
+  display: block;
+  background: var(--amber);
+  color: var(--forest-deep);
+  padding: 16px 32px;
+  border-radius: 100px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: 24px;
+  transition: all 0.2s;
+  cursor: pointer;
+  border: none;
+  width: 100%;
+}
+.price-cta:hover { background: var(--cream); transform: translateY(-1px); }
+.price-note { font-size: 12px; color: rgba(245, 241, 234, 0.5); margin-top: 16px; font-style: italic; }
+
+.faq-section { padding: 80px 0; background: var(--paper); }
+.faq-item { border-bottom: 1px solid var(--line); padding: 24px 0; }
+.faq-q {
+  font-family: 'Fraunces', serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--forest);
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.faq-q::after {
+  content: '+';
+  font-size: 28px;
+  color: var(--amber);
+  font-weight: 300;
+  transition: transform 0.2s;
+}
+.faq-item.open .faq-q::after { transform: rotate(45deg); }
+.faq-a {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.faq-item.open .faq-a { max-height: 400px; padding-top: 8px; }
+
+.final-cta { padding: 100px 0; background: var(--forest); color: var(--cream); text-align: center; }
+.final-cta h2 {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  margin-bottom: 16px;
+  line-height: 1.1;
+}
+.final-cta h2 em { color: var(--amber); font-style: italic; }
+.final-cta p { font-size: 18px; opacity: 0.75; max-width: 540px; margin: 0 auto 40px; }
+.final-cta .email-form {
+  margin: 0 auto;
+  background: rgba(245, 241, 234, 0.1);
+  border-color: rgba(245, 241, 234, 0.2);
+}
+.final-cta .email-form input { color: var(--cream); }
+.final-cta .email-form input::placeholder { color: rgba(245, 241, 234, 0.5); }
+.final-cta .email-form button { background: var(--amber); color: var(--forest-deep); }
+.final-cta .email-form button:hover:not(:disabled) { background: var(--cream); }
+.final-cta .form-status { color: rgba(245, 241, 234, 0.85); margin-top: 14px; }
+.final-cta .form-status.error { color: #f4b8b1; }
+
+footer { padding: 40px 0; text-align: center; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+footer a { color: var(--forest); text-decoration: none; margin: 0 12px; }
+
+@media (max-width: 768px) {
+  .hero { padding: 40px 0 60px; }
+  .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+  .phone-frame { width: 240px; height: 500px; }
+  .stat-grid { grid-template-columns: 1fr; gap: 32px; }
+  .stat-block { border-left: none; border-top: 1px solid rgba(245, 241, 234, 0.15); padding-left: 0; padding-top: 24px; }
+  .stat-number { font-size: 56px; }
+  .problem-grid { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; gap: 40px; }
+  .compare-row { grid-template-columns: 1.5fr 1fr 1fr; padding: 16px; }
+  .section { padding: 64px 0; }
+  .pricing-section, .compare-section, .final-cta { padding: 64px 0; }
+  .price-card { padding: 32px 24px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <div class="logo"><span class="logo-dot"></span>LeanScan</div>
+    <a href="#waitlist" class="nav-cta plausible-event-name=nav_cta_click">Join Waitlist</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <div class="eyebrow">For Ozempic · Wegovy · Mounjaro · Zepbound</div>
+      <h1 class="headline">Snap your meal.<br><em>Save your muscle.</em></h1>
+      <p class="lede">The first AI camera-based protein tracker built for GLP-1 users. Hit your protein target in ten seconds — protect the muscle that protects your metabolism.</p>
+
+      <form class="email-form" data-form="hero" novalidate>
+        <input type="email" name="email_address" placeholder="your@email.com" aria-label="Your email address" required>
+        <button type="submit" class="plausible-event-name=waitlist_signup plausible-event-position=hero">Get Early Access</button>
+      </form>
+      <div class="form-status" data-status="hero" role="status" aria-live="polite"></div>
+
+      <p class="hero-meta">Currently opening the <strong>founder cohort</strong> — first 500 signups lock in $49/year for life.</p>
+    </div>
+    <div>
+      <div class="phone-frame" aria-hidden="true">
+        <div class="phone-screen">
+          <div class="phone-header">
+            <span>9:41</span>
+            <span>●●●</span>
+          </div>
+          <div class="phone-greeting">Good morning, Sarah.</div>
+          <div class="phone-sub">Day 47 on Wegovy</div>
+          <div class="protein-ring">
+            <div class="ring-label">Protein today</div>
+            <div class="ring-value">94<span>g / 120g</span></div>
+            <div class="ring-bar"><div class="ring-bar-fill"></div></div>
+          </div>
+          <div class="meal-card">
+            <span class="meal-name">🍳 Eggs &amp; avocado</span>
+            <span class="meal-protein">+18g</span>
+          </div>
+          <div class="meal-card">
+            <span class="meal-name">🍗 Grilled chicken</span>
+            <span class="meal-protein">+34g</span>
+          </div>
+          <div class="meal-card">
+            <span class="meal-name">🥛 Greek yogurt</span>
+            <span class="meal-protein">+22g</span>
+          </div>
+          <div class="scan-btn"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STAT SECTION -->
+<section class="stat-section">
+  <div class="container">
+    <div class="stat-grid">
+      <div class="stat-block">
+        <div class="stat-number">40<sup>%</sup></div>
+        <div class="stat-label">of weight lost on semaglutide is lean mass — not fat.</div>
+        <div class="stat-cite">STEP-1 Clinical Trial, NEJM</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-number">1 <span style="font-size:48px">in</span> 8</div>
+        <div class="stat-label">US adults are now on a GLP-1 medication. Globally, the wave is just starting.</div>
+        <div class="stat-cite">2026 prescription data</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-number">3<sup>%</sup></div>
+        <div class="stat-label">muscle loss vs 40% — when protein and resistance training are tracked.</div>
+        <div class="stat-cite">Endocrine Society, 2025</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section class="section">
+  <div class="container">
+    <div class="section-eyebrow">The Problem</div>
+    <h2 class="section-title">Your calorie tracker is <em>actively working against you</em>.</h2>
+    <p class="section-lede">Generic tracking apps were built for people trying to eat less. You're already eating less — the medication did that for you. Your job now is protecting muscle. Most apps don't even show protein on the home screen.</p>
+
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="problem-num">— 01 —</div>
+        <div class="problem-title">Calories are the wrong North Star</div>
+        <div class="problem-text">On a GLP-1, you're already in deficit. The number that matters is protein. Most trackers bury it three taps deep, behind a calorie ring you don't need.</div>
+      </div>
+      <div class="problem-card">
+        <div class="problem-num">— 02 —</div>
+        <div class="problem-title">Logging is exhausting</div>
+        <div class="problem-text">When food is the last thing you want to think about, scrolling through a 14-million-item database to find "skinless chicken breast, grilled" is its own punishment.</div>
+      </div>
+      <div class="problem-card">
+        <div class="problem-num">— 03 —</div>
+        <div class="problem-title">Side effects go untracked</div>
+        <div class="problem-text">Nausea, fatigue, sulfur burps, constipation — your appetite, weight, and side effects move together. No tracker connects the dots so you can rescue a bad day.</div>
+      </div>
+      <div class="problem-card">
+        <div class="problem-num">— 04 —</div>
+        <div class="problem-title">No one tracks the lifts</div>
+        <div class="problem-text">Protein protects muscle only if you're lifting. Calorie apps weren't built for resistance training, and gym apps weren't built for protein. You need both, together.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section">
+  <div class="container">
+    <div class="section-eyebrow">How it works</div>
+    <h2 class="section-title">Three taps. <em>Done in ten seconds.</em></h2>
+    <p class="section-lede">Built for the days when even chewing feels like work. Designed around the only number that matters on a GLP-1: protein.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-title">Snap</div>
+        <div class="step-text">Photograph any meal — restaurant plate, home-cooked, packaged. Our AI identifies it in seconds, estimates the portion, and surfaces protein first.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-title">Adjust</div>
+        <div class="step-text">One tap to tweak portion size. The AI learns your patterns — your "usual" Greek yogurt, your typical chicken portion — and gets faster over time.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-title">Track</div>
+        <div class="step-text">Protein ring, daily weight, side effects, training sessions — one dashboard. Patterns you couldn't see before become obvious.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section class="compare-section">
+  <div class="container">
+    <div class="section-eyebrow">Why not just use MyFitnessPal?</div>
+    <h2 class="section-title">Built for <em>this</em> moment in your life — not the diet you tried in 2018.</h2>
+
+    <div class="compare-table">
+      <div class="compare-row compare-header">
+        <div class="col col-feature">Feature</div>
+        <div class="col">MyFitnessPal / Cal AI</div>
+        <div class="col">LeanScan</div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">Protein-first home screen</div>
+        <div class="col-other"><span class="cross">✗</span> Calories first</div>
+        <div class="col-ours"><span class="check">✓</span> Protein ring is primary</div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">GLP-1 side effect logging</div>
+        <div class="col-other"><span class="cross">✗</span> Not supported</div>
+        <div class="col-ours"><span class="check">✓</span> Nausea, GI, fatigue, energy</div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">Resistance training tracker</div>
+        <div class="col-other"><span class="cross">✗</span> Cardio-focused</div>
+        <div class="col-ours"><span class="check">✓</span> Lifts + progression</div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">AI photo tracking</div>
+        <div class="col-other"><span class="cross">✗</span> Paid tier only</div>
+        <div class="col-ours"><span class="check">✓</span> Included from day one</div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">Protein-pacing reminders</div>
+        <div class="col-other"><span class="cross">✗</span> No timing logic</div>
+        <div class="col-ours"><span class="check">✓</span> 20–40g per meal alerts <small style="opacity:.6">(v2)</small></div>
+      </div>
+      <div class="compare-row">
+        <div class="col-feature">Maintenance-phase mode</div>
+        <div class="col-other"><span class="cross">✗</span> One mode only</div>
+        <div class="col-ours"><span class="check">✓</span> Off-drug protocol <small style="opacity:.6">(v2)</small></div>
+      </div>
+    </div>
+    <p class="compare-footnote">v2 features ship after the v1 launch milestone. Founder pricing covers all updates.</p>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing-section" id="waitlist">
+  <div class="container">
+    <div class="section-eyebrow" style="text-align:center">Founder Pricing</div>
+    <h2 class="section-title" style="text-align:center; margin-left:auto; margin-right:auto;">A flat price. <em>No upsells. Cancel anytime.</em></h2>
+
+    <div class="price-card">
+      <div class="price-badge">Founder Cohort — First 500 Users</div>
+      <div class="price-amount"><sup>$</sup>49<span>/year</span></div>
+      <div class="price-sub">Locked in for life. Goes to $89/year at public launch.</div>
+
+      <ul class="price-features">
+        <li>Unlimited AI photo meal scans</li>
+        <li>Protein-first dashboard &amp; daily targets</li>
+        <li>Side effect &amp; symptom tracking</li>
+        <li>Resistance training log with progression</li>
+        <li>Weekly metabolic report (PDF)</li>
+        <li class="v2-feature">Maintenance phase protocol (v2)</li>
+        <li>Direct access to the founder via email</li>
+      </ul>
+
+      <button type="button" class="price-cta plausible-event-name=pricing_cta_click" onclick="document.querySelector('[data-form=hero] input').focus(); document.querySelector('[data-form=hero] input').scrollIntoView({behavior:'smooth', block:'center'});">Reserve Founder Pricing</button>
+      <p class="price-note">Less than the cost of one protein shake per week.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq-section">
+  <div class="narrow">
+    <div class="section-eyebrow" style="text-align:center">Frequently Asked</div>
+    <h2 class="section-title" style="text-align:center; margin: 0 auto 48px;">Questions, <em>answered honestly</em>.</h2>
+
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">Is this medical advice or a medical device?</div>
+      <div class="faq-a">No. LeanScan is a nutrition tracking tool. It doesn't replace your prescribing physician or registered dietitian. We help you log what you're already doing — more accurately and more easily.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">How accurate is the AI photo recognition?</div>
+      <div class="faq-a">Honestly: it's directionally right, not lab-precise. The AI estimates protein and calories within roughly 10–20% — same as any photo-based tracker. On a GLP-1 where total intake is already low, that accuracy is more than enough to track trends and hit daily protein floors. You can always adjust manually.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">When does the app actually launch?</div>
+      <div class="faq-a">We're in pre-launch validation right now. iOS early access opens to waitlist members within roughly 8 weeks of hitting our build threshold (500 signups + signal that this is the right product). Android follows after iOS. Founder pricing is locked in for waitlist members regardless of when you joined.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">What about my data and privacy?</div>
+      <div class="faq-a">Your meal photos and health logs stay on your device by default. We never sell data. We never share with insurance companies, pharma, or advertisers. If you delete the app, your data is gone.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">Will this work if I'm not on a GLP-1?</div>
+      <div class="faq-a">Yes — anyone trying to prioritize protein during weight loss will benefit. But the app is opinionated for GLP-1 users. If you want a generalist tracker with 200 features, MyFitnessPal already exists. LeanScan does one thing well.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">Who's building this?</div>
+      <div class="faq-a">A solo software engineer with applied AI experience, building independently. No VC. No pharma. Just the tool I wished existed for people I know on these medications. You'll always be able to email me directly.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <div class="narrow">
+    <h2>The medication is working.<br><em>Make sure your muscle is too.</em></h2>
+    <p>Join the founder waitlist. Lock in $49/year for life. Be among the first 500 users to shape what gets built.</p>
+    <form class="email-form" data-form="footer" novalidate>
+      <input type="email" name="email_address" placeholder="your@email.com" aria-label="Your email address" required>
+      <button type="submit" class="plausible-event-name=waitlist_signup plausible-event-position=footer">Get Early Access</button>
+    </form>
+    <div class="form-status" data-status="footer" role="status" aria-live="polite"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    LeanScan © 2026. Built independently in pre-launch.
+    <a href="mailto:hello@leanscan.app">Contact</a> ·
+    <a href="/privacy">Privacy</a> ·
+    <a href="/terms">Terms</a>
+  </div>
+</footer>
+
+<script>
+// =========================================================================
+// LeanScan email capture
+// -------------------------------------------------------------------------
+// Wires both <form data-form="..."> elements to your email provider.
+// Pick ONE provider, fill in the credentials, then deploy.
+//
+// Default: ConvertKit (free tier). Switch CONFIG.provider to use another.
+// =========================================================================
+
+const CONFIG = {
+  // 'convertkit' | 'formspree' | 'console'
+  provider: 'convertkit',
+
+  // --- ConvertKit ---
+  // Get this from your form's "Embed → HTML" code (it's in the action URL).
+  // Example: https://app.convertkit.com/forms/1234567/subscriptions
+  // → form_id is "1234567"
+  convertkit: {
+    form_id: 'YOUR_CONVERTKIT_FORM_ID',
+  },
+
+  // --- Formspree fallback ---
+  // Create an endpoint at https://formspree.io → paste form id here.
+  formspree: {
+    form_id: 'YOUR_FORMSPREE_FORM_ID',
+  },
+};
+
+const messages = {
+  success: "You're in. Check your inbox to confirm.",
+  duplicate: "Already on the list — you're set.",
+  invalid: "That email doesn't look right. Try again?",
+  network: "Network hiccup. Try again in a sec.",
+};
+
+async function submitEmail(provider, email) {
+  if (provider === 'convertkit') {
+    const url = `https://app.kit.com/forms/${CONFIG.convertkit.form_id}/subscriptions`;
+    const fd = new FormData();
+    fd.append('email_address', email);
+    const res = await fetch(url, { method: 'POST', body: fd, mode: 'cors' });
+    return res.ok;
+  }
+  if (provider === 'formspree') {
+    const url = `https://formspree.io/f/${CONFIG.formspree.form_id}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+      body: new FormData(Object.assign(document.createElement('form'), {
+        innerHTML: `<input name="email" value="${email}">`
+      }))
+    });
+    return res.ok;
+  }
+  // 'console' — for local testing without a provider yet
+  console.log('[LeanScan] would submit email:', email);
+  return true;
+}
+
+function isValidEmail(s) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+document.querySelectorAll('form.email-form').forEach((form) => {
+  const formId = form.dataset.form;
+  const status = document.querySelector(`[data-status="${formId}"]`);
+  const input = form.querySelector('input[type=email]');
+  const button = form.querySelector('button');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = input.value.trim();
+    status.classList.remove('error');
+
+    if (!isValidEmail(email)) {
+      status.textContent = messages.invalid;
+      status.classList.add('error');
+      input.focus();
+      return;
+    }
+
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    status.textContent = '';
+
+    try {
+      const ok = await submitEmail(CONFIG.provider, email);
+      if (ok) {
+        status.textContent = messages.success;
+        button.textContent = '✓ Joined';
+        input.value = '';
+        // Fire Plausible custom event if available
+        if (window.plausible) {
+          window.plausible('waitlist_signup', { props: { position: formId } });
+        }
+      } else {
+        throw new Error('Submission failed');
+      }
+    } catch (err) {
+      status.textContent = messages.network;
+      status.classList.add('error');
+      button.disabled = false;
+      button.textContent = originalText;
+      console.error('[LeanScan] form error:', err);
+      return;
+    }
+
+    setTimeout(() => {
+      button.disabled = false;
+      button.textContent = originalText;
+    }, 4000);
+  });
+});
+</script>
+
+</body>
+</html>

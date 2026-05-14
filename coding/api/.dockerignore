@@ -1,0 +1,16 @@
+node_modules
+package-lock.json
+dist
+.env
+.env.local
+.env.*.local
+.git
+.gitignore
+.vscode
+.idea
+*.log
+coverage
+.vitest-cache
+README.md
+tests
+.DS_Store

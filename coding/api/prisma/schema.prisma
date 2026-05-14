@@ -1,0 +1,247 @@
+// LeanScan database schema — Prisma is the source of truth.
+// Run `npm run migrate:dev -- --name <descriptive-name>` after changes
+// to generate a new migration in prisma/migrations/.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // For Supabase Postgres in production, set DIRECT_URL to the non-pooled URL
+  // and uncomment the next line. Pooled URL on DATABASE_URL is used at runtime.
+  // directUrl = env("DIRECT_URL")
+}
+
+// =============================================================
+// Enums
+// =============================================================
+enum Role {
+  user
+  admin
+  super_admin
+}
+
+enum UserStatus {
+  active
+  suspended
+  deleted
+}
+
+enum Goal {
+  lose
+  build
+  recomp
+  maintain
+}
+
+enum ActivityLevel {
+  sedentary
+  light
+  moderate
+  active
+}
+
+enum DashboardPriority {
+  protein
+  calories
+}
+
+enum Medication {
+  none
+  ozempic
+  wegovy
+  mounjaro
+  zepbound
+  saxenda
+  compounded_semaglutide
+  compounded_tirzepatide
+  other
+}
+
+enum CreditReason {
+  initial_grant
+  daily_refill
+  photo_scan
+  admin_grant
+  referral_bonus
+  onboarding_bonus
+}
+
+enum MealSource {
+  photo
+  manual
+  quick_add
+}
+
+enum MealConfidence {
+  low
+  medium
+  high
+}
+
+enum Sex {
+  male
+  female
+  other
+  prefer_not_to_say
+}
+
+// =============================================================
+// Users — auth + profile + credit state in one row
+// =============================================================
+model User {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz()
+
+  role   Role       @default(user)
+  status UserStatus @default(active)
+
+  // Profile
+  username              String?            @unique
+  firstName             String?            @map("first_name")
+  lastName              String?            @map("last_name")
+  dateOfBirth           DateTime?          @map("date_of_birth") @db.Date
+  sex                   Sex?
+  displayName           String?            @map("display_name")
+  goal                  Goal?
+  heightCm              Decimal?           @map("height_cm") @db.Decimal(5, 2)
+  weightKg              Decimal?           @map("weight_kg") @db.Decimal(5, 2)
+  goalWeightKg          Decimal?           @map("goal_weight_kg") @db.Decimal(5, 2)
+  activityLevel         ActivityLevel?     @map("activity_level")
+  proteinTargetG        Int?               @map("protein_target_g")
+  unitsMetric           Boolean            @default(true) @map("units_metric")
+  dashboardPriority     DashboardPriority  @default(protein) @map("dashboard_priority")
+  onboardingCompletedAt DateTime?          @map("onboarding_completed_at") @db.Timestamptz()
+
+  // Optional medication
+  medication          Medication @default(none)
+  medicationDose      String?    @map("medication_dose")
+  medicationStartDate DateTime?  @map("medication_start_date") @db.Date
+
+  // Credit system (V1 has no payment)
+  creditBalance        Int      @default(100) @map("credit_balance")
+  creditLastRefilledAt DateTime @default(now()) @map("credit_last_refilled_at") @db.Timestamptz()
+  isFounderCohort      Boolean  @default(false) @map("is_founder_cohort")
+
+  // Reminder prefs
+  reminderWeightTime DateTime @default(dbgenerated("'08:00'::time")) @map("reminder_weight_time") @db.Time(6)
+  reminderMealNudges Boolean  @default(true) @map("reminder_meal_nudges")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  authSessions        AuthSession[]
+  passwordResetTokens PasswordResetToken[]
+  creditEntries       CreditLedger[]       @relation("UserLedger")
+  adminGrants         CreditLedger[]       @relation("AdminLedger")
+  meals               Meal[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+// =============================================================
+// Meals — logged either via AI photo, manual entry, or quick-add
+// =============================================================
+model Meal {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz()
+  // Date in UTC used for grouping on the home screen; generated stored column
+  // so day-bucket queries hit the index.
+  logDate  DateTime @default(dbgenerated("(CURRENT_DATE)")) @map("log_date") @db.Date
+
+  mealName         String  @map("meal_name")
+  estimatedPortion String? @map("estimated_portion")
+
+  // Photo stored on disk via storage service; this is the relative path.
+  photoPath String? @map("photo_path")
+
+  // Macros — protein is the headline; rest are secondary.
+  proteinG Decimal  @default(0) @map("protein_g") @db.Decimal(6, 2)
+  calories Int?
+  carbsG   Decimal? @map("carbs_g") @db.Decimal(6, 2)
+  fatG     Decimal? @map("fat_g") @db.Decimal(6, 2)
+
+  source        MealSource      @default(photo)
+  confidence    MealConfidence?
+  aiNotes       String?         @map("ai_notes")
+  rawAiResponse Json?           @map("raw_ai_response")
+
+  editedByUser Boolean   @default(false) @map("edited_by_user")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt(sort: Desc)])
+  @@index([userId, logDate])
+  @@map("meals")
+}
+
+// =============================================================
+// Auth sessions — refresh-token state
+// =============================================================
+model AuthSession {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz()
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address") @db.Inet
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz()
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+// =============================================================
+// Password reset tokens
+// =============================================================
+model PasswordResetToken {
+  tokenHash String    @id @map("token_hash")
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz()
+  usedAt    DateTime? @map("used_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// =============================================================
+// Credit ledger — append-only audit of every credit change
+// =============================================================
+model CreditLedger {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  delta        Int
+  balanceAfter Int          @map("balance_after")
+  reason       CreditReason
+  adminUserId  String?      @map("admin_user_id") @db.Uuid
+  notes        String?
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  user      User  @relation("UserLedger", fields: [userId], references: [id], onDelete: Cascade)
+  adminUser User? @relation("AdminLedger", fields: [adminUserId], references: [id], onDelete: NoAction)
+
+  @@index([userId, createdAt])
+  @@index([reason, createdAt])
+  @@map("credit_ledger")
+}

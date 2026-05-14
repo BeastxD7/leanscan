@@ -1,0 +1,35 @@
+# Standalone Postgres for LeanScan dev.
+#
+# Usage:
+#   cd coding/db
+#   docker compose up -d         # start in background
+#   docker compose down          # stop, keep data
+#   docker compose down -v       # stop + WIPE all data (DANGEROUS)
+#   docker compose logs -f       # tail postgres logs
+#
+# The API connects via host port 54320 — see DATABASE_URL in coding/api/.env:
+#   postgresql://leanscan:dev@localhost:54320/leanscan_dev?schema=public
+#
+# After this is up, run migrations from coding/api/:
+#   npm run migrate:dev
+
+services:
+  postgres:
+    build: .
+    container_name: leanscan-postgres
+    restart: unless-stopped
+    ports:
+      # Host port 54320 → container port 5432.
+      # Different from the default 5432 to avoid clashing with any
+      # Homebrew Postgres or other docker projects on your Mac.
+      - "54320:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      # Override only if you need to. Credentials are baked into the image
+      # via the Dockerfile ENVs.
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+volumes:
+  pgdata:
+    name: leanscan_pgdata

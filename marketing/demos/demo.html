@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeanScan — Demo</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a3a2e'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23c8975b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --forest: #1a3a2e;
+  --forest-deep: #112720;
+  --cream: #f5f1ea;
+  --cream-dark: #ebe5d6;
+  --paper: #faf7f0;
+  --charcoal: #2a2a2a;
+  --muted: #6b6b6b;
+  --amber: #c8975b;
+  --line: rgba(26, 58, 46, 0.12);
+  --error: #b85850;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Manrope', sans-serif;
+  background: var(--cream);
+  color: var(--charcoal);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 20px 60px;
+  -webkit-font-smoothing: antialiased;
+}
+.brand {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--forest);
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.brand::before {
+  content: '';
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--amber);
+  display: inline-block;
+}
+.tag {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  margin-bottom: 36px;
+}
+
+/* Card */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 32px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 25px 60px -25px rgba(26, 58, 46, 0.25);
+}
+
+h1 {
+  font-family: 'Fraunces', serif;
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--forest);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+}
+h1 em { color: var(--amber); font-style: italic; font-weight: 400; }
+
+.lede {
+  color: var(--muted);
+  font-size: 15px;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+/* Buttons */
+button, .btn {
+  background: var(--forest);
+  color: var(--cream);
+  border: none;
+  padding: 14px 24px;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s, transform 0.15s;
+}
+button:hover:not(:disabled), .btn:hover { background: var(--forest-deep); }
+button:active:not(:disabled) { transform: scale(0.99); }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+button.amber { background: var(--amber); color: var(--forest-deep); }
+button.amber:hover:not(:disabled) { background: #b88748; }
+button.ghost { background: transparent; color: var(--forest); border: 1px solid var(--line); }
+button.ghost:hover:not(:disabled) { background: var(--cream-dark); }
+
+input[type="password"], input[type="text"] {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  background: var(--cream);
+  color: var(--charcoal);
+  outline: none;
+  margin-bottom: 12px;
+}
+input:focus { border-color: var(--amber); }
+
+label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 8px;
+}
+
+/* Uploader */
+.uploader {
+  border: 2px dashed var(--line);
+  border-radius: 20px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 16px;
+}
+.uploader:hover, .uploader.dragover {
+  border-color: var(--amber);
+  background: rgba(200, 151, 91, 0.05);
+}
+.uploader-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  display: block;
+}
+.uploader-text {
+  font-size: 15px;
+  color: var(--forest);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.uploader-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+input[type="file"] { display: none; }
+
+.preview {
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  background: var(--cream-dark);
+  aspect-ratio: 4/3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Result card */
+.result-card {
+  background: var(--forest);
+  color: var(--cream);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.result-meal {
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+  margin-bottom: 4px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.result-sub {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-bottom: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.protein-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.protein-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+}
+.protein-value {
+  font-family: 'Fraunces', serif;
+  font-size: 56px;
+  font-weight: 500;
+  color: var(--amber);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.protein-unit { font-size: 18px; opacity: 0.7; }
+.macro-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(245, 241, 234, 0.15);
+}
+.macro {
+  text-align: center;
+}
+.macro-name {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.macro-value {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--cream);
+}
+.macro-value small { font-size: 12px; opacity: 0.5; }
+
+.confidence-note {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+/* States */
+.spinner {
+  border: 3px solid var(--cream-dark);
+  border-top-color: var(--forest);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.status {
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.error-box {
+  background: rgba(184, 88, 80, 0.08);
+  border: 1px solid rgba(184, 88, 80, 0.3);
+  color: var(--error);
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+.warning {
+  background: rgba(200, 151, 91, 0.12);
+  border-left: 3px solid var(--amber);
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--forest);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.btn-row { display: flex; gap: 8px; }
+.btn-row > * { flex: 1; }
+
+.hide { display: none !important; }
+
+.footer-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 24px;
+  text-align: center;
+  max-width: 440px;
+  line-height: 1.5;
+}
+.footer-note a { color: var(--forest); }
+</style>
+</head>
+<body>
+
+<div class="brand">LeanScan</div>
+<div class="tag">Demo · For Local Use Only</div>
+
+<!-- ========== KEY SETUP SCREEN ========== -->
+<div class="card" id="screen-setup">
+  <h1>Protein-first <em>meal scan</em>.</h1>
+  <p class="lede">Paste your Google Gemini API key to try the protein-detection prototype. The key is stored only in this browser and used only to call Gemini directly.</p>
+
+  <div class="warning">
+    <strong>For local prototype use.</strong> Don't deploy this page publicly with your API key — anyone could read it. Use this for TikTok recording or personal testing only.
+  </div>
+
+  <label for="api-key">Gemini API Key</label>
+  <input type="password" id="api-key" placeholder="AIza..." autocomplete="off">
+  <button id="save-key">Continue</button>
+  <p class="hint">Get one free at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com/app/apikey</a>. Uses <code>gemini-2.5-flash</code> — free tier covers ~1,500 scans/day.</p>
+</div>
+
+<!-- ========== UPLOAD SCREEN ========== -->
+<div class="card hide" id="screen-upload">
+  <h1>Snap your meal.<br><em>Save your muscle.</em></h1>
+  <p class="lede">Drop a meal photo. We surface protein first.</p>
+
+  <label for="file-input" class="uploader" id="dropzone">
+    <span class="uploader-icon">📷</span>
+    <div class="uploader-text">Choose a meal photo</div>
+    <div class="uploader-sub">or drag and drop here · JPG, PNG, HEIC</div>
+  </label>
+  <input type="file" id="file-input" accept="image/*">
+
+  <button class="ghost" id="reset-key">Change API key</button>
+</div>
+
+<!-- ========== ANALYZING SCREEN ========== -->
+<div class="card hide" id="screen-loading">
+  <div class="preview"><img id="preview-img-loading" alt=""></div>
+  <div class="spinner"></div>
+  <div class="status" id="loading-status">Looking at your plate…</div>
+</div>
+
+<!-- ========== RESULT SCREEN ========== -->
+<div class="card hide" id="screen-result">
+  <div class="preview"><img id="preview-img-result" alt=""></div>
+
+  <div class="result-card">
+    <div class="result-meal" id="r-meal">Meal name</div>
+    <div class="result-sub" id="r-sub">Estimated portion</div>
+
+    <div class="protein-row">
+      <span class="protein-value" id="r-protein">0</span>
+      <span class="protein-unit">g protein</span>
+    </div>
+    <div class="protein-label">The number that matters on a GLP-1</div>
+
+    <div class="macro-row">
+      <div class="macro">
+        <div class="macro-name">Calories</div>
+        <div class="macro-value" id="r-cal">—</div>
+      </div>
+      <div class="macro">
+        <div class="macro-name">Carbs</div>
+        <div class="macro-value" id="r-carb">— <small>g</small></div>
+      </div>
+      <div class="macro">
+        <div class="macro-name">Fat</div>
+        <div class="macro-value" id="r-fat">— <small>g</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="confidence-note" id="confidence-note">AI estimate · directionally accurate, not lab-precise</div>
+
+  <div class="btn-row">
+    <button class="amber" id="another">Scan another</button>
+    <button class="ghost" id="copy-result">Copy result</button>
+  </div>
+</div>
+
+<!-- ========== ERROR SCREEN ========== -->
+<div class="card hide" id="screen-error">
+  <div class="error-box" id="error-message"></div>
+  <button id="retry">Try again</button>
+</div>
+
+<div class="footer-note">
+  Single-file prototype for TikTok / Reddit content. Not the real LeanScan app.<br>
+  Real app launches to waitlist members in iOS first.
+</div>
+
+<script>
+'use strict';
+
+const KEY_STORAGE = 'leanscan_demo_gemini_key';
+// If you see 429 "limit: 0", swap models — different models have separate quota.
+// Try in this order: gemini-2.5-flash → gemini-1.5-flash → gemini-2.0-flash
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+// ---------- screen routing ----------
+const screens = {
+  setup: document.getElementById('screen-setup'),
+  upload: document.getElementById('screen-upload'),
+  loading: document.getElementById('screen-loading'),
+  result: document.getElementById('screen-result'),
+  error: document.getElementById('screen-error'),
+};
+
+function show(name) {
+  Object.values(screens).forEach(s => s.classList.add('hide'));
+  screens[name].classList.remove('hide');
+}
+
+// ---------- key handling ----------
+function getKey() {
+  return localStorage.getItem(KEY_STORAGE);
+}
+
+function init() {
+  if (getKey()) {
+    show('upload');
+  } else {
+    show('setup');
+  }
+}
+
+document.getElementById('save-key').addEventListener('click', () => {
+  const v = document.getElementById('api-key').value.trim();
+  if (!v.startsWith('AIza') || v.length < 30) {
+    alert("That doesn't look like a Gemini API key. They start with 'AIza' and are ~39 chars long.");
+    return;
+  }
+  localStorage.setItem(KEY_STORAGE, v);
+  show('upload');
+});
+
+document.getElementById('reset-key').addEventListener('click', () => {
+  if (confirm('Forget your API key from this browser?')) {
+    localStorage.removeItem(KEY_STORAGE);
+    document.getElementById('api-key').value = '';
+    show('setup');
+  }
+});
+
+// ---------- file upload ----------
+const fileInput = document.getElementById('file-input');
+const dropzone = document.getElementById('dropzone');
+
+['dragenter', 'dragover'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); })
+);
+['dragleave', 'drop'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+);
+dropzone.addEventListener('drop', e => {
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function fileToDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function handleFile(file) {
+  if (!file.type.startsWith('image/')) {
+    showError("That doesn't look like an image file.");
+    return;
+  }
+  // Soft size warning — Gemini accepts up to ~20MB inline
+  if (file.size > 20 * 1024 * 1024) {
+    showError("Image is over 20 MB. Try a smaller one.");
+    return;
+  }
+
+  const dataURL = await fileToDataURL(file);
+  document.getElementById('preview-img-loading').src = dataURL;
+  document.getElementById('preview-img-result').src = dataURL;
+  show('loading');
+
+  rotateLoadingMessages();
+
+  try {
+    const result = await analyzeMeal(dataURL);
+    renderResult(result);
+    show('result');
+  } catch (err) {
+    showError(err.message || 'Unknown error');
+  }
+}
+
+let loadingInterval;
+function rotateLoadingMessages() {
+  const msgs = [
+    'Looking at your plate…',
+    'Estimating portion size…',
+    'Counting protein grams…',
+    'Almost there…',
+  ];
+  let i = 0;
+  const el = document.getElementById('loading-status');
+  el.textContent = msgs[0];
+  clearInterval(loadingInterval);
+  loadingInterval = setInterval(() => {
+    i = (i + 1) % msgs.length;
+    el.textContent = msgs[i];
+  }, 2000);
+}
+
+// ---------- Gemini call ----------
+const SYSTEM_PROMPT = `You are LeanScan, a protein-first nutrition analyzer for people on GLP-1 weight-loss medications (Ozempic, Wegovy, Mounjaro, Zepbound).
+
+Given a photo of a meal, identify what it is and estimate nutrition. Always lead with PROTEIN — it is the only number that matters on a GLP-1.
+
+Return ONLY a valid JSON object with this exact shape, no markdown, no commentary:
+{
+  "meal_name": "short descriptive name, max 6 words",
+  "estimated_portion": "concise portion description, e.g. '1 cup, ~150g'",
+  "protein_g": number (integer grams),
+  "calories": number (integer kcal),
+  "carbs_g": number (integer grams),
+  "fat_g": number (integer grams),
+  "confidence": "low" | "medium" | "high",
+  "notes": "one short sentence about protein quality or GLP-1 tip, max 20 words"
+}
+
+If the image is not a meal, return:
+{"error": "not_a_meal", "meal_name": "Not a meal", "estimated_portion": "", "protein_g": 0, "calories": 0, "carbs_g": 0, "fat_g": 0, "confidence": "low", "notes": "Try a photo of food on a plate or in a bowl."}`;
+
+function splitDataURL(dataURL) {
+  // "data:image/jpeg;base64,XXXXX" → { mime, b64 }
+  const m = dataURL.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) throw new Error('Could not read image data.');
+  return { mime: m[1], b64: m[2] };
+}
+
+async function analyzeMeal(dataURL) {
+  const key = getKey();
+  if (!key) throw new Error('Missing API key.');
+
+  const { mime, b64 } = splitDataURL(dataURL);
+
+  const body = {
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: 'Analyze this meal. Return JSON only.' },
+        { inlineData: { mimeType: mime, data: b64 } },
+      ],
+    }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.2,
+      maxOutputTokens: 800,
+      // Disable thinking tokens on 2.5 models. Harmless on 2.0.
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (res.status === 400 && /API key/i.test(text)) {
+      throw new Error('Invalid Gemini API key. Check it and try again.');
+    }
+    if (res.status === 403) throw new Error('API key denied. Check it has Gemini API access enabled.');
+    if (res.status === 429) throw new Error('Rate-limited by Gemini. Wait a moment and retry — free tier is 15 requests/min.');
+    throw new Error(`Gemini error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+
+  // Safety block check
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    if (data.promptFeedback?.blockReason) {
+      throw new Error(`Blocked by safety filter: ${data.promptFeedback.blockReason}. Try a different photo.`);
+    }
+    throw new Error('Empty response from Gemini.');
+  }
+  if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+    throw new Error(`Stopped: ${candidate.finishReason}. Try a different photo.`);
+  }
+
+  // Concatenate all text parts (Gemini occasionally splits JSON across parts).
+  const parts = candidate.content?.parts || [];
+  let content = parts.map(p => p.text || '').join('').trim();
+  console.log('[LeanScan] Gemini raw response:', content);
+
+  if (!content) throw new Error('Empty response from Gemini. Try another photo.');
+
+  // Strip ```json ... ``` fences if the model added them despite responseMimeType.
+  content = content
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+
+  // Some models prefix with conversational text; grab the first {...} block.
+  if (content[0] !== '{') {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (m) content = m[0];
+  }
+
+  if (candidate.finishReason === 'MAX_TOKENS') {
+    throw new Error('Response was cut off (MAX_TOKENS). Try a simpler photo.');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (err) {
+    const preview = content.slice(0, 200).replace(/\s+/g, ' ');
+    throw new Error(`Could not parse response. Got: "${preview}…". Check DevTools console for full output.`);
+  }
+  return parsed;
+}
+
+// ---------- render ----------
+function renderResult(r) {
+  clearInterval(loadingInterval);
+  document.getElementById('r-meal').textContent = r.meal_name || 'Meal';
+  document.getElementById('r-sub').textContent = r.estimated_portion || '';
+  document.getElementById('r-protein').textContent = r.protein_g ?? '—';
+  document.getElementById('r-cal').textContent = r.calories ?? '—';
+  document.getElementById('r-carb').innerHTML = `${r.carbs_g ?? '—'} <small>g</small>`;
+  document.getElementById('r-fat').innerHTML = `${r.fat_g ?? '—'} <small>g</small>`;
+  const conf = r.confidence ? `Confidence: ${r.confidence}` : '';
+  const note = r.notes ? ` · ${r.notes}` : '';
+  document.getElementById('confidence-note').textContent = `${conf}${note}`;
+}
+
+document.getElementById('another').addEventListener('click', () => {
+  fileInput.value = '';
+  show('upload');
+});
+
+document.getElementById('copy-result').addEventListener('click', async () => {
+  const meal = document.getElementById('r-meal').textContent;
+  const p = document.getElementById('r-protein').textContent;
+  const c = document.getElementById('r-cal').textContent;
+  const text = `${meal} — ${p}g protein, ${c} kcal · via LeanScan`;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById('copy-result');
+    const t = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => btn.textContent = t, 1500);
+  } catch {
+    alert(text);
+  }
+});
+
+// ---------- error ----------
+function showError(msg) {
+  clearInterval(loadingInterval);
+  document.getElementById('error-message').textContent = msg;
+  show('error');
+}
+document.getElementById('retry').addEventListener('click', () => show('upload'));
+
+// ---------- boot ----------
+init();
+</script>
+
+</body>
+</html>
