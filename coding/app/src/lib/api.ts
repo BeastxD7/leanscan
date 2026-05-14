@@ -15,6 +15,7 @@
  *     forms to render inline)
  */
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
 import { getAuth, useAuthStore, type User } from '../state/auth';
 import { toast } from '../state/toast';
 
@@ -342,9 +343,14 @@ export const api = {
     }),
 
   /**
-   * Upload a meal photo. Uses FormData (multipart) — separate code path from
-   * the JSON `request` helper because Content-Type / boundary handling differs.
-   * Returns the Gemini estimate + a `photo_path` that must be passed to `saveMeal`
+   * Upload a meal photo. Uses expo-file-system's native uploadAsync instead of
+   * fetch + FormData — RN 0.83 / Expo SDK 55 has a regression where multipart
+   * fetch uploads fail on Android with "network request failed" before the
+   * request leaves the device. uploadAsync uses the platform's native HTTP
+   * upload primitives (NSURLSession on iOS, OkHttp on Android) which are not
+   * affected.
+   *
+   * Returns the AI estimate + a `photo_path` that must be passed to `saveMeal`
    * if the user accepts.
    */
   uploadMealPhoto: async (localUri: string): Promise<{
@@ -363,48 +369,62 @@ export const api = {
     credit_balance: number;
     raw_ai_response: unknown;
   }> => {
-    const { accessToken } = getAuth();
-
-    const form = new FormData();
-    // React Native's FormData accepts this shape for file fields.
-    form.append('photo', {
-      uri: localUri,
-      name: 'meal.jpg',
-      type: 'image/jpeg',
-    } as unknown as Blob);
-
     const url = `${API_URL}/v1/meals/photo`;
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          Accept: 'application/json',
-          // Intentionally NO Content-Type — fetch sets the boundary automatically.
-        },
-        body: form,
-      });
-    } catch (err) {
-      throw new ApiError(0, 'network_error', (err as Error).message || 'Network error');
+
+    // Inner helper — does one upload attempt with the current access token.
+    // Returned so we can call it twice: once normally, once after a refresh.
+    const doUpload = async (): Promise<FileSystem.FileSystemUploadResult> => {
+      const { accessToken } = getAuth();
+      try {
+        return await FileSystem.uploadAsync(url, localUri, {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'photo',
+          mimeType: 'image/jpeg',
+          parameters: {},
+          headers: {
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            Accept: 'application/json',
+          },
+        });
+      } catch (err) {
+        throw new ApiError(0, 'network_error', (err as Error).message || 'Network error');
+      }
+    };
+
+    let result = await doUpload();
+
+    // 401 → try refresh once, then retry. Mirrors the pattern in requestWithMessage.
+    if (result.status === 401) {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        result = await doUpload();
+      } else {
+        await useAuthStore.getState().clear();
+        throw new ApiError(401, 'session_expired', 'Your session expired. Sign in again.');
+      }
     }
 
     let json: ApiBody<unknown>;
     try {
-      json = (await res.json()) as ApiBody<unknown>;
+      json = JSON.parse(result.body) as ApiBody<unknown>;
     } catch {
-      throw new ApiError(res.status, 'invalid_response', `Server returned non-JSON (${res.status})`);
+      throw new ApiError(
+        result.status,
+        'invalid_response',
+        `Server returned non-JSON (${result.status})`,
+      );
     }
-    if (!res.ok || !json.success) {
+    if (result.status < 200 || result.status >= 300 || !json.success) {
       const errBody = (json as ApiErrorBody).error;
       throw new ApiError(
-        res.status,
+        result.status,
         errBody?.code ?? 'unknown',
-        json.message ?? `Upload failed (${res.status})`,
+        json.message ?? `Upload failed (${result.status})`,
         errBody?.details,
       );
     }
-    return (json as ApiSuccessBody<typeof form>).data as never;
+    return (json as ApiSuccessBody<never>).data as never;
   },
 
   recentMeals: () =>

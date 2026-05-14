@@ -21,6 +21,7 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 
 import { Input, Button, FormError } from '../../src/components/Input';
 import { colors, typography, spacing } from '../../src/theme';
@@ -127,8 +128,9 @@ export default function ManualEntry() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.close}>← Cancel</Text>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+          <Feather name="x" size={18} color={colors.forest} />
+          <Text style={styles.close}>Cancel</Text>
         </Pressable>
         <Text style={styles.title}>Add manually</Text>
         <View style={{ width: 60 }} />
@@ -271,6 +273,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
   close: { ...typography.bodyMedium, color: colors.forest },
   title: { ...typography.h3, color: colors.forest },
   scroll: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl },

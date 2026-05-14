@@ -16,7 +16,6 @@ import { apiSuccess } from '../lib/response.js';
 import { serializeUser } from '../lib/serializeUser.js';
 import { grantCredits } from '../credits/grant.js';
 import { config } from '../config.js';
-import { logger } from '../lib/logger.js';
 
 export const profileRouter = Router();
 export const onboardingRouter = Router();
@@ -80,19 +79,72 @@ const profileUpdateSchema = z.object({
 // =============================================================
 // Helpers
 // =============================================================
+/**
+ * GLP-1 medications. Users on these drugs in a calorie deficit are at elevated
+ * risk of lean-mass loss because (a) the appetite suppression makes hitting
+ * adequate protein harder, and (b) the rapid weight loss can include muscle.
+ * Common clinical guidance is to push toward 1.6–2.0 g/kg in this state.
+ *
+ * Source: see protein-recommendation notes in research/.
+ */
+const GLP1_MEDICATIONS = new Set([
+  'ozempic',
+  'wegovy',
+  'mounjaro',
+  'zepbound',
+  'saxenda',
+  'compounded_semaglutide',
+  'compounded_tirzepatide',
+]);
+
+/**
+ * Compute the daily protein target. The returned `reasoning` is a short
+ * sentence the UI can show to explain why the number is what it is — useful
+ * on the onboarding "Done" screen and in Settings.
+ *
+ * Math:
+ *   base                      = 1.2 g/kg
+ *   activity moderate         → 1.4
+ *   activity active           → 1.6
+ *   goal build                → +0.2
+ *   goal recomp               → +0.1
+ *   GLP-1 + (lose | recomp)   → floor at 1.6 g/kg (muscle protection)
+ */
 function calculateProteinTarget(opts: {
   weightKg: number | null;
   activityLevel: string | null;
   goal: string | null;
-}): number | null {
-  if (!opts.weightKg) return null;
-  // Base 1.2 g/kg. Bump for activity + goal.
+  medication?: string | null;
+}): { value: number | null; multiplier: number | null; reasoning: string | null } {
+  if (!opts.weightKg) return { value: null, multiplier: null, reasoning: null };
+
   let multiplier = 1.2;
   if (opts.activityLevel === 'moderate') multiplier = 1.4;
   if (opts.activityLevel === 'active') multiplier = 1.6;
   if (opts.goal === 'build') multiplier += 0.2;
   if (opts.goal === 'recomp') multiplier += 0.1;
-  return Math.round(opts.weightKg * multiplier);
+
+  // GLP-1 bump: floor at 1.6 g/kg when on a GLP-1 drug AND in a deficit-leaning
+  // goal. Doesn't reduce people who are already above 1.6 (e.g. active builders).
+  let reasoning: string | null = null;
+  if (
+    opts.medication &&
+    GLP1_MEDICATIONS.has(opts.medication) &&
+    (opts.goal === 'lose' || opts.goal === 'recomp')
+  ) {
+    if (multiplier < 1.6) {
+      multiplier = 1.6;
+      reasoning = `Bumped to 1.6 g/kg — GLP-1 users in a deficit need more protein to protect muscle.`;
+    } else {
+      reasoning = `Held at ${multiplier.toFixed(1)} g/kg — already meets the GLP-1 muscle-protection guideline.`;
+    }
+  }
+
+  return {
+    value: Math.round(opts.weightKg * multiplier),
+    multiplier,
+    reasoning,
+  };
 }
 
 // kept as a thin alias for backwards compat; serializeUser is the new source of truth
@@ -152,17 +204,7 @@ profileRouter.get(
 profileRouter.patch(
   '/',
   asyncHandler(async (req, res) => {
-    // TEMP DEBUG — confirm what mobile actually sends
-    logger.info({ rawBody: req.body, userId: req.userId }, '[profile.patch] raw request body');
     const input = profileUpdateSchema.parse(req.body);
-    logger.info(
-      {
-        parsedFirstName: input.first_name,
-        parsedLastName: input.last_name,
-        parsedUsername: input.username,
-      },
-      '[profile.patch] parsed input',
-    );
 
     const updates: Record<string, unknown> = {};
     if (input.username !== undefined) updates.username = input.username;
@@ -189,8 +231,6 @@ profileRouter.patch(
     }
     if (input.reminder_meal_nudges !== undefined) updates.reminderMealNudges = input.reminder_meal_nudges;
 
-    logger.info({ updates }, '[profile.patch] prisma.user.update data');
-
     let updated;
     try {
       updated = await prisma.user.update({
@@ -198,10 +238,6 @@ profileRouter.patch(
         data: updates,
         select: PROFILE_SELECT,
       });
-      logger.info(
-        { savedFirstName: updated.firstName, savedLastName: updated.lastName, savedUsername: updated.username },
-        '[profile.patch] prisma.user.update result',
-      );
     } catch (err) {
       // Username is the only unique field on the user profile; surface a clean
       // 409 if a collision happens so the form can highlight the field.
@@ -216,20 +252,27 @@ profileRouter.patch(
       throw err;
     }
 
+    // Recalc the protein target whenever any input to the formula changed,
+    // unless the client explicitly set an override via protein_target_g.
+    // Medication matters now because GLP-1 + (lose | recomp) floors at 1.6 g/kg.
     const shouldRecalc =
       input.protein_target_g === undefined &&
-      (input.weight_kg !== undefined || input.activity_level !== undefined || input.goal !== undefined);
+      (input.weight_kg !== undefined ||
+        input.activity_level !== undefined ||
+        input.goal !== undefined ||
+        input.medication !== undefined);
 
     if (shouldRecalc) {
-      const newTarget = calculateProteinTarget({
+      const calc = calculateProteinTarget({
         weightKg: updated.weightKg ? Number(updated.weightKg) : null,
         activityLevel: updated.activityLevel ?? null,
         goal: updated.goal ?? null,
+        medication: updated.medication ?? null,
       });
-      if (newTarget !== null && newTarget !== updated.proteinTargetG) {
+      if (calc.value !== null && calc.value !== updated.proteinTargetG) {
         updated = await prisma.user.update({
           where: { id: req.userId! },
-          data: { proteinTargetG: newTarget },
+          data: { proteinTargetG: calc.value },
           select: PROFILE_SELECT,
         });
       }
@@ -248,7 +291,15 @@ onboardingRouter.post(
   asyncHandler(async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.userId! },
-      select: { id: true, onboardingCompletedAt: true, proteinTargetG: true, weightKg: true, activityLevel: true, goal: true },
+      select: {
+        id: true,
+        onboardingCompletedAt: true,
+        proteinTargetG: true,
+        weightKg: true,
+        activityLevel: true,
+        goal: true,
+        medication: true,
+      },
     });
     if (!user) throw new HttpError(404, 'user_not_found', 'User not found.');
 
@@ -266,11 +317,13 @@ onboardingRouter.post(
     // Ensure protein target is set — if not, calculate from current profile
     let proteinTarget = user.proteinTargetG;
     if (!proteinTarget) {
-      proteinTarget = calculateProteinTarget({
+      const calc = calculateProteinTarget({
         weightKg: user.weightKg ? Number(user.weightKg) : null,
         activityLevel: user.activityLevel,
         goal: user.goal,
+        medication: user.medication,
       });
+      proteinTarget = calc.value;
     }
 
     await prisma.user.update({

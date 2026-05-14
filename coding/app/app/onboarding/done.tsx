@@ -18,6 +18,7 @@ import { useOnboardingStore, calculateProteinTarget } from '../../src/state/onbo
 import { useAuthStore } from '../../src/state/auth';
 import { api, ApiError } from '../../src/lib/api';
 import { toast } from '../../src/state/toast';
+import { requestPermission, applyReminders } from '../../src/lib/notifications';
 
 export default function DoneStep() {
   const router = useRouter();
@@ -26,15 +27,18 @@ export default function DoneStep() {
   const onboarding = useOnboardingStore();
   const patchUser = useAuthStore((s) => s.patchUser);
 
-  const proteinTarget = useMemo(
+  const calc = useMemo(
     () =>
       calculateProteinTarget({
         weightKg: onboarding.weightKg,
         activityLevel: onboarding.activityLevel,
         goal: onboarding.goal,
+        medication: onboarding.medication,
       }),
-    [onboarding.weightKg, onboarding.activityLevel, onboarding.goal],
+    [onboarding.weightKg, onboarding.activityLevel, onboarding.goal, onboarding.medication],
   );
+  const proteinTarget = calc.value;
+  const reasoning = calc.reasoning;
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -63,7 +67,23 @@ export default function DoneStep() {
       const completeResult = await api.completeOnboarding();
       toast.success(completeResult.message);
 
-      // 3. Pull the fresh user record so AuthGate sees onboarding_completed=true
+      // 3. Ask for notification permission and schedule the user's reminders.
+      //    We ask AFTER server work succeeds — if the user denies, onboarding
+      //    still completes; the reminder settings just sit unused until they
+      //    grant permission later from Settings.
+      try {
+        const perm = await requestPermission();
+        if (perm === 'granted') {
+          await applyReminders({
+            reminder_weight_time: onboarding.reminderWeightTime,
+            reminder_meal_nudges: onboarding.reminderMealNudges,
+          });
+        }
+      } catch {
+        /* notifications are best-effort; never block onboarding */
+      }
+
+      // 4. Pull the fresh user record so AuthGate sees onboarding_completed=true
       const me = await api.me();
       await patchUser({
         ...me,
@@ -73,10 +93,10 @@ export default function DoneStep() {
         onboarding_completed: true,
       });
 
-      // 4. Invalidate cached profile so Settings reflects the new state
+      // 5. Invalidate cached profile so Settings reflects the new state
       qc.invalidateQueries({ queryKey: ['profile'] });
 
-      // 5. Clean up the local onboarding state and explicitly navigate.
+      // 6. Clean up the local onboarding state and explicitly navigate.
       //    Belt + suspenders — AuthGate also handles this, but tsx watch can
       //    miss the segment update if effect timing is unlucky.
       reset();
@@ -108,6 +128,13 @@ export default function DoneStep() {
           </Text>
           <Text style={styles.targetLabel}>protein per day</Text>
         </View>
+
+        {reasoning ? (
+          <View style={styles.reasoningCard}>
+            <Text style={styles.reasoningEyebrow}>Why this number</Text>
+            <Text style={styles.reasoningBody}>{reasoning}</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.helper}>
           The number that matters most on a recomp / weight-loss / muscle-building track.
@@ -159,5 +186,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: spacing.md,
   },
+  reasoningCard: {
+    backgroundColor: colors.creamDark,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xxs,
+  },
+  reasoningEyebrow: { ...typography.eyebrow, color: colors.amber },
+  reasoningBody: { ...typography.body, color: colors.forest },
   footer: { padding: spacing.lg },
 });

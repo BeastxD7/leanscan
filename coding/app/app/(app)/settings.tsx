@@ -15,10 +15,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Switch,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 
 import { Input, Button, FormError } from '../../src/components/Input';
 import { DatePickerField } from '../../src/components/DatePickerField';
@@ -26,6 +29,12 @@ import { colors, typography, spacing, radius } from '../../src/theme';
 import { api, ApiError } from '../../src/lib/api';
 import { useAuthStore } from '../../src/state/auth';
 import { toast } from '../../src/state/toast';
+import {
+  requestPermission,
+  getPermissionStatus,
+  applyReminders,
+  type PermissionStatus,
+} from '../../src/lib/notifications';
 
 type GoalT = 'lose' | 'build' | 'recomp' | 'maintain';
 type ActivityT = 'sedentary' | 'light' | 'moderate' | 'active';
@@ -63,6 +72,8 @@ interface ServerProfile {
   goal?: GoalT | null;
   activity_level?: ActivityT | null;
   protein_target_g?: number | null;
+  reminder_weight_time?: string | null;
+  reminder_meal_nudges?: boolean | null;
 }
 
 export default function Settings() {
@@ -81,8 +92,22 @@ export default function Settings() {
   const [goalWeightKg, setGoalWeightKg] = useState('');
   const [goal, setGoal] = useState<GoalT | null>(null);
   const [activity, setActivity] = useState<ActivityT | null>(null);
+  const [reminderTime, setReminderTime] = useState('08:00');
+  const [mealNudges, setMealNudges] = useState(true);
+  const [permStatus, setPermStatus] = useState<PermissionStatus>('undetermined');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  // Check notification permission state on mount so we can show the right CTA.
+  useEffect(() => {
+    let cancelled = false;
+    getPermissionStatus().then((s) => {
+      if (!cancelled) setPermStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keyed by userId so a sign-in to a different account fetches fresh data.
   const profile = useQuery({
@@ -106,6 +131,8 @@ export default function Settings() {
     setGoalWeightKg(p.goal_weight_kg != null ? String(p.goal_weight_kg) : '');
     setGoal((p.goal as GoalT) ?? null);
     setActivity((p.activity_level as ActivityT) ?? null);
+    setReminderTime(p.reminder_weight_time ?? '08:00');
+    setMealNudges(p.reminder_meal_nudges ?? true);
   }, [profile.data]);
 
   function setErr(key: string, msg: string | undefined) {
@@ -141,6 +168,11 @@ export default function Settings() {
     if (goalWeightKg) payload.goal_weight_kg = Number(goalWeightKg);
     if (goal) payload.goal = goal;
     if (activity) payload.activity_level = activity;
+    // Reminder fields always sent — they have sensible defaults and the user
+    // can intentionally change them. Sending always avoids "the toggle didn't
+    // save" bugs from skipping when value is false.
+    payload.reminder_weight_time = reminderTime;
+    payload.reminder_meal_nudges = mealNudges;
 
     if (Object.keys(payload).length === 0) {
       toast.info('Nothing to save.');
@@ -167,7 +199,21 @@ export default function Settings() {
         activity_level: u.activity_level ?? null,
         protein_target_g: u.protein_target_g ?? user?.protein_target_g ?? null,
       });
+      // Note: reminder fields aren't in the User type used by auth store yet —
+      // they live only in the server profile. That's intentional; the auth store
+      // is for identity + display. Reminders are read from the server when needed.
       profile.refetch();
+
+      // Re-apply notification schedules so any changes to time / toggle take
+      // effect immediately. Silently no-ops if permission isn't granted.
+      try {
+        await applyReminders({
+          reminder_weight_time: reminderTime,
+          reminder_meal_nudges: mealNudges,
+        });
+      } catch {
+        /* best-effort */
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === 'username_taken') setErr('username', err.message);
@@ -194,8 +240,9 @@ export default function Settings() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.close}>← Back</Text>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+          <Feather name="arrow-left" size={20} color={colors.forest} />
+          <Text style={styles.close}>Back</Text>
         </Pressable>
         <Text style={styles.title}>Settings</Text>
         <View style={{ width: 60 }} />
@@ -281,6 +328,68 @@ export default function Settings() {
 
           <SectionHeader title="Activity level" />
           <Chips<ActivityT> options={ACTIVITY} value={activity} onChange={(v) => setActivity(v)} />
+
+          <SectionHeader title="Reminders" />
+
+          {/* Permission status row — only meaningful before grant. After grant
+              we hide it; OS settings is the source of truth from then on. */}
+          {permStatus !== 'granted' && (
+            <View style={styles.permRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.permTitle}>
+                  {permStatus === 'denied' ? 'Notifications are blocked' : 'Notifications are off'}
+                </Text>
+                <Text style={styles.permSub}>
+                  {permStatus === 'denied'
+                    ? 'Enable them in your phone settings to get reminders.'
+                    : 'Allow notifications so we can remind you.'}
+                </Text>
+              </View>
+              <Pressable
+                onPress={async () => {
+                  if (permStatus === 'denied') {
+                    Linking.openSettings();
+                  } else {
+                    const next = await requestPermission();
+                    setPermStatus(next);
+                    if (next === 'granted') {
+                      await applyReminders({
+                        reminder_weight_time: reminderTime,
+                        reminder_meal_nudges: mealNudges,
+                      });
+                    }
+                  }
+                }}
+                style={({ pressed }) => [styles.permBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.permBtnText}>
+                  {permStatus === 'denied' ? 'Open settings' : 'Allow'}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          <Input
+            label="Weigh-in reminder (HH:MM)"
+            value={reminderTime}
+            onChangeText={setReminderTime}
+            placeholder="08:00"
+            keyboardType="numbers-and-punctuation"
+            autoCapitalize="none"
+          />
+
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleTitle}>Meal-log nudges</Text>
+              <Text style={styles.toggleSub}>A gentle nudge at 1 PM if you haven&apos;t logged.</Text>
+            </View>
+            <Switch
+              value={mealNudges}
+              onValueChange={setMealNudges}
+              trackColor={{ false: colors.line, true: colors.forest }}
+              thumbColor={colors.cream}
+            />
+          </View>
         </ScrollView>
 
         <View style={styles.footer}>
@@ -337,6 +446,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
   close: { ...typography.bodyMedium, color: colors.forest },
   title: { ...typography.h3, color: colors.forest },
   scroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
@@ -355,6 +465,41 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: colors.creamDark, borderColor: colors.forest },
   chipText: { ...typography.body, color: colors.charcoal },
   chipTextSelected: { color: colors.forest, fontFamily: 'Manrope_600SemiBold' },
+
+  // Reminders section pieces
+  permRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.errorBg,
+    borderWidth: 1,
+    borderColor: colors.error,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  permTitle: { ...typography.bodyMedium, color: colors.forest },
+  permSub: { ...typography.small, color: colors.muted, marginTop: spacing.xxs },
+  permBtn: {
+    backgroundColor: colors.forest,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+  },
+  permBtnText: { ...typography.bodyMedium, color: colors.cream, fontSize: 13 },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  toggleTitle: { ...typography.bodyMedium, color: colors.charcoal },
+  toggleSub: { ...typography.small, color: colors.muted, marginTop: spacing.xxs },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,

@@ -20,6 +20,8 @@ import {
 import { colors } from '../src/theme';
 import { useAuthStore } from '../src/state/auth';
 import { Toaster } from '../src/components/Toaster';
+import { api } from '../src/lib/api';
+import { applyReminders, getPermissionStatus } from '../src/lib/notifications';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -86,6 +88,35 @@ function AuthGate() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const user = useAuthStore((s) => s.user);
   const isHydrated = useAuthStore((s) => s.isHydrated);
+
+  // On cold start, re-apply notification schedules from the server's current
+  // reminder preferences. Required because the OS may have cleared schedules
+  // (device restart, app force-stop) and because timezone may have changed
+  // since the last schedule was created.
+  useEffect(() => {
+    if (!isHydrated || !accessToken || !user?.onboarding_completed) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const perm = await getPermissionStatus();
+        if (perm !== 'granted') return;
+        const profile = (await api.getProfile()) as {
+          reminder_weight_time?: string | null;
+          reminder_meal_nudges?: boolean | null;
+        };
+        if (cancelled) return;
+        await applyReminders({
+          reminder_weight_time: profile.reminder_weight_time,
+          reminder_meal_nudges: profile.reminder_meal_nudges,
+        });
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHydrated, accessToken, user?.id, user?.onboarding_completed]);
 
   useEffect(() => {
     if (!isHydrated) return;

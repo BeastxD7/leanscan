@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" width="360" height="96" aria-label="LeanScan">
+  <title>LeanScan</title>
+  <!-- Mark -->
+  <g transform="translate(16, 16)">
+    <circle cx="32" cy="32" r="26" fill="none" stroke="#1a3a2e" stroke-width="5"/>
+    <path d="M 32 6 A 26 26 0 0 1 58 32" fill="none" stroke="#c8975b" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <!-- Wordmark in Fraunces (with a system-serif fallback) -->
+  <text
+    x="100"
+    y="62"
+    fill="#1a3a2e"
+    font-family="Fraunces, 'Cormorant Garamond', Georgia, serif"
+    font-weight="500"
+    font-size="40"
+    letter-spacing="-0.5"
+  >LeanScan</text>
+</svg>

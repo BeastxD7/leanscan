@@ -4,6 +4,7 @@
  */
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { colors, typography, spacing, radius } from '../theme';
 
 interface StepHeaderProps {
@@ -21,7 +22,7 @@ export function StepHeader({ step, total = 6, canGoBack = true }: StepHeaderProp
       <View style={styles.row}>
         {canGoBack && router.canGoBack() ? (
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.back}>
-            <Text style={styles.backIcon}>←</Text>
+            <Feather name="arrow-left" size={20} color={colors.forest} />
           </Pressable>
         ) : (
           <View style={styles.back} />
@@ -55,10 +56,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  backIcon: {
-    fontSize: 22,
-    color: colors.forest,
   },
   label: {
     ...typography.eyebrow,

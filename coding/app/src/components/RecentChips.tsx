@@ -6,6 +6,7 @@
  * Quick-add POSTs to /v1/meals with source: 'quick_add'.
  */
 import { ScrollView, Pressable, Text, View, StyleSheet, ActivityIndicator } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { colors, typography, spacing, radius } from '../theme';
 
 export interface RecentChipItem {
@@ -25,9 +26,15 @@ interface Props {
   /** Set to the id currently being logged so we can grey-out + spinner that chip. */
   pendingId?: string | null;
   onPress: (item: RecentChipItem) => void;
+  /**
+   * Optional "Add manually" handler. When provided, a leading "+ Manual" chip
+   * is rendered before the recents so brand-new users (no recents yet) still
+   * see a non-photo logging entry point here instead of needing a second FAB.
+   */
+  onAddManual?: () => void;
 }
 
-export function RecentChips({ items, loading, pendingId, onPress }: Props) {
+export function RecentChips({ items, loading, pendingId, onPress, onAddManual }: Props) {
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
@@ -35,7 +42,8 @@ export function RecentChips({ items, loading, pendingId, onPress }: Props) {
       </View>
     );
   }
-  if (items.length === 0) return null;
+  // Hide the section entirely only if there are no items AND no manual handler.
+  if (items.length === 0 && !onAddManual) return null;
 
   return (
     <View>
@@ -45,6 +53,25 @@ export function RecentChips({ items, loading, pendingId, onPress }: Props) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
       >
+        {onAddManual && (
+          <Pressable
+            onPress={onAddManual}
+            style={({ pressed }) => [
+              styles.chip,
+              styles.manualChip,
+              pressed && styles.pressed,
+            ]}
+            hitSlop={4}
+          >
+            <View style={styles.manualIconWrap}>
+              <Feather name="plus" size={16} color={colors.forest} />
+            </View>
+            <View>
+              <Text style={styles.manualName}>Add manually</Text>
+              <Text style={styles.manualSub}>Type macros</Text>
+            </View>
+          </Pressable>
+        )}
         {items.map((item) => {
           const pending = item.id === pendingId;
           return (
@@ -65,11 +92,21 @@ export function RecentChips({ items, loading, pendingId, onPress }: Props) {
               <View style={styles.proteinRow}>
                 {pending ? (
                   <ActivityIndicator size="small" color={colors.amber} />
-                ) : (
+                ) : Math.round(item.protein_g) >= 1 ? (
+                  // Protein-first when it matters — the headline number.
                   <Text style={styles.protein}>
                     +{Math.round(item.protein_g)}
                     <Text style={styles.proteinUnit}>g</Text>
                   </Text>
+                ) : item.calories != null ? (
+                  // Zero-protein item (drink, candy, water) — fall back to calories
+                  // so the chip isn't a meaningless "+0g".
+                  <Text style={styles.protein}>
+                    {item.calories}
+                    <Text style={styles.proteinUnit}> kcal</Text>
+                  </Text>
+                ) : (
+                  <Text style={styles.protein}>—</Text>
                 )}
               </View>
             </Pressable>
@@ -117,4 +154,26 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontFamily: 'Manrope_400Regular',
   },
+  // "Add manually" leading chip — visually distinct from recents (dashed border,
+  // cream-dark fill) so it reads as an action, not a logged item.
+  manualChip: {
+    minWidth: 130,
+    backgroundColor: colors.creamDark,
+    borderStyle: 'dashed',
+    borderColor: colors.lineStrong,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  manualIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualName: { ...typography.bodyMedium, color: colors.forest },
+  manualSub: { ...typography.small, color: colors.muted },
 });

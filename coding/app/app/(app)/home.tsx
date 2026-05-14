@@ -11,12 +11,12 @@ import {
   ScrollView,
   Pressable,
   RefreshControl,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 
 import { colors, typography, spacing, radius } from '../../src/theme';
 import { useAuthStore } from '../../src/state/auth';
@@ -25,6 +25,9 @@ import { toast } from '../../src/state/toast';
 import { ProteinRing } from '../../src/components/ProteinRing';
 import { MealCard } from '../../src/components/MealCard';
 import { RecentChips, type RecentChipItem } from '../../src/components/RecentChips';
+import { ConfirmSheet } from '../../src/components/ConfirmSheet';
+import { LogoMark } from '../../src/components/LogoMark';
+import { cancelAllReminders } from '../../src/lib/notifications';
 
 export default function Home() {
   const router = useRouter();
@@ -113,40 +116,40 @@ export default function Home() {
     today.refetch();
   }, [today]);
 
-  function confirmDelete(mealId: string, mealName: string) {
-    Alert.alert(`Delete "${mealName}"?`, 'You can re-log it later.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteMeal.mutate(mealId),
-      },
-    ]);
+  // MealCard now shows its own branded ConfirmSheet for the ⋯ → Delete flow,
+  // so this just runs the deletion directly. (No second native alert.)
+  function handleDelete(mealId: string) {
+    deleteMeal.mutate(mealId);
   }
 
-  async function handleSignOut() {
-    Alert.alert('Sign out?', 'You can sign back in any time.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: async () => {
-          if (refreshToken) {
-            try {
-              await api.logout({ refresh_token: refreshToken });
-            } catch {
-              /* ignore */
-            }
-          }
-          // Wipe any cached queries (profile, meals, etc.) so the next user's
-          // data is fetched fresh instead of reading the previous user's cache.
-          qc.clear();
-          await clear();
-        },
-      },
-    ]);
-  }
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
+  function handleSignOut() {
+    setSignOutOpen(true);
+  }
+  async function performSignOut() {
+    setSigningOut(true);
+    try {
+      if (refreshToken) {
+        try {
+          await api.logout({ refresh_token: refreshToken });
+        } catch {
+          /* ignore */
+        }
+      }
+      // Cancel scheduled notifications so the next user logging in on this
+      // device doesn't inherit the previous user's reminders.
+      await cancelAllReminders().catch(() => {});
+      // Wipe any cached queries (profile, meals, etc.) so the next user's
+      // data is fetched fresh instead of reading the previous user's cache.
+      qc.clear();
+      await clear();
+    } finally {
+      setSigningOut(false);
+      setSignOutOpen(false);
+    }
+  }
   function handleSnap() {
     router.push('/(app)/scan');
   }
@@ -158,7 +161,7 @@ export default function Home() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.topBar}>
         <View style={styles.brandRow}>
-          <View style={styles.dot} />
+          <LogoMark size={22} />
           <Text style={styles.brand}>LeanScan</Text>
         </View>
         <View style={styles.topRight}>
@@ -170,7 +173,7 @@ export default function Home() {
             hitSlop={8}
             style={styles.iconBtn}
           >
-            <Text style={styles.iconBtnText}>⚙</Text>
+            <Feather name="settings" size={20} color={colors.forest} />
           </Pressable>
           <Pressable onPress={handleSignOut} hitSlop={8} style={styles.signOutBtn}>
             <Text style={styles.signOutText}>Sign out</Text>
@@ -199,6 +202,15 @@ export default function Home() {
           </Text>
         </View>
 
+        {isGlp1User(user?.medication) ? (
+          <View style={styles.medBanner}>
+            <Feather name="shield" size={14} color={colors.forest} />
+            <Text style={styles.medBannerText}>
+              {prettyMedication(user?.medication)} · protein target tuned for muscle protection
+            </Text>
+          </View>
+        ) : null}
+
         {today.isLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={colors.forest} />
@@ -221,6 +233,7 @@ export default function Home() {
           loading={recents.isLoading}
           pendingId={pendingQuickAddId}
           onPress={(item) => quickAdd.mutate(item)}
+          onAddManual={() => router.push('/(app)/manual')}
         />
 
         <View style={styles.listHeader}>
@@ -249,29 +262,34 @@ export default function Home() {
                     : undefined
                 }
                 onPress={() => router.push(`/(app)/meal/${m.id}`)}
-                onDelete={() => confirmDelete(m.id, m.meal_name)}
+                onDelete={() => handleDelete(m.id)}
               />
             ))}
           </View>
         )}
       </ScrollView>
 
+      {/* Single hero CTA — Snap. Manual entry now lives in the Quick Add row. */}
       <View style={styles.fab}>
         <Pressable
           onPress={handleSnap}
           style={({ pressed }) => [styles.snapBtn, pressed && styles.snapBtnPressed]}
         >
-          <Text style={styles.snapBtnIcon}>📷</Text>
+          <Feather name="camera" size={20} color={colors.forestDeep} />
           <Text style={styles.snapBtnText}>Snap</Text>
         </Pressable>
-        <Pressable
-          onPress={() => router.push('/(app)/manual')}
-          hitSlop={8}
-          style={styles.manualLinkWrap}
-        >
-          <Text style={styles.manualLink}>Or enter manually</Text>
-        </Pressable>
       </View>
+
+      <ConfirmSheet
+        visible={signOutOpen}
+        title="Sign out?"
+        body="You can sign back in any time."
+        confirmLabel="Sign out"
+        destructive
+        loading={signingOut}
+        onConfirm={performSignOut}
+        onCancel={() => setSignOutOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -304,6 +322,35 @@ function greeting(): string {
  * The 16-char cap keeps the greeting on a single line on small screens
  * (e.g. "Good morning, Shashank." fits; longer compound names get trimmed).
  */
+const GLP1_MEDS = new Set([
+  'ozempic',
+  'wegovy',
+  'mounjaro',
+  'zepbound',
+  'saxenda',
+  'compounded_semaglutide',
+  'compounded_tirzepatide',
+]);
+
+function isGlp1User(medication?: string | null): boolean {
+  return !!medication && GLP1_MEDS.has(medication);
+}
+
+function prettyMedication(medication?: string | null): string {
+  if (!medication) return '';
+  // Map snake_case enum values to nice display names.
+  switch (medication) {
+    case 'ozempic': return 'Ozempic';
+    case 'wegovy': return 'Wegovy';
+    case 'mounjaro': return 'Mounjaro';
+    case 'zepbound': return 'Zepbound';
+    case 'saxenda': return 'Saxenda';
+    case 'compounded_semaglutide': return 'Compounded semaglutide';
+    case 'compounded_tirzepatide': return 'Compounded tirzepatide';
+    default: return medication;
+  }
+}
+
 const MAX_GREETING_NAME = 16;
 
 function displayName(
@@ -340,7 +387,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  dot: { width: 10, height: 10, borderRadius: radius.circle, backgroundColor: colors.amber },
   brand: { ...typography.h3, color: colors.forest },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   creditPill: {
@@ -357,13 +403,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.circle,
   },
-  iconBtnText: { fontSize: 20, color: colors.forest },
   signOutBtn: { paddingHorizontal: spacing.xs },
   signOutText: { ...typography.small, color: colors.muted },
 
   scroll: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: 120,
+    // FAB is ~56px tall + spacing.xl bottom + safe area. 140 gives meal cards
+    // a clean breathing margin so the last card doesn't sit under the Snap pill.
+    paddingBottom: 140,
     gap: spacing.lg,
   },
   heroSection: { gap: spacing.xxs, marginTop: spacing.xs },
@@ -371,6 +418,22 @@ const styles = StyleSheet.create({
   greetingSub: { ...typography.body, color: colors.muted },
 
   loadingWrap: { height: 220, alignItems: 'center', justifyContent: 'center' },
+
+  // GLP-1 medication acknowledgment — a small, calm strip under the greeting.
+  // Shown only when the user has a GLP-1 set, so it doesn't add noise for
+  // non-medicated users.
+  medBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.creamDark,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  medBannerText: { ...typography.small, color: colors.forest },
+
 
   macroRow: {
     flexDirection: 'row',
@@ -437,8 +500,5 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   snapBtnPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
-  snapBtnIcon: { fontSize: 20 },
   snapBtnText: { ...typography.button, color: colors.forestDeep, fontSize: 16 },
-  manualLinkWrap: { paddingVertical: spacing.xs, paddingHorizontal: spacing.md },
-  manualLink: { ...typography.bodyMedium, color: colors.forest, textDecorationLine: 'underline' },
 });

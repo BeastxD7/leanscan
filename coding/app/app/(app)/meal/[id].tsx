@@ -2,13 +2,16 @@
  * Meal detail screen — full photo, macros, notes, delete action.
  * Route: /(app)/meal/<mealId>
  */
-import { View, Text, StyleSheet, ScrollView, Image, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, Pressable, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 
 import { colors, typography, spacing, radius } from '../../../src/theme';
 import { Button } from '../../../src/components/Input';
+import { ConfirmSheet } from '../../../src/components/ConfirmSheet';
 import { api, API_URL, ApiError, type MealRecord } from '../../../src/lib/api';
 import { useAuthStore } from '../../../src/state/auth';
 import { toast } from '../../../src/state/toast';
@@ -19,6 +22,7 @@ export default function MealDetail() {
   const params = useLocalSearchParams<{ id?: string }>();
   const mealId = typeof params.id === 'string' ? params.id : '';
   const accessToken = useAuthStore((s) => s.accessToken);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Try cache first, then fetch fresh
   const detail = useQuery({
@@ -45,10 +49,11 @@ export default function MealDetail() {
   });
 
   function confirmDelete() {
-    Alert.alert('Delete this meal?', 'You can re-log it later.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate() },
-    ]);
+    setConfirmOpen(true);
+  }
+  function handleConfirmedDelete() {
+    setConfirmOpen(false);
+    deleteMutation.mutate();
   }
 
   if (detail.isLoading) {
@@ -65,8 +70,9 @@ export default function MealDetail() {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={styles.close}>← Back</Text>
+          <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+            <Feather name="arrow-left" size={20} color={colors.forest} />
+            <Text style={styles.close}>Back</Text>
           </Pressable>
           <Text style={styles.title}>Meal</Text>
           <View style={{ width: 60 }} />
@@ -90,8 +96,9 @@ export default function MealDetail() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.close}>← Back</Text>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+          <Feather name="arrow-left" size={20} color={colors.forest} />
+          <Text style={styles.close}>Back</Text>
         </Pressable>
         <Text style={styles.title}>Meal</Text>
         <View style={{ width: 60 }} />
@@ -108,7 +115,7 @@ export default function MealDetail() {
           />
         ) : (
           <View style={[styles.bigPhoto, styles.photoFallback]}>
-            <Text style={styles.photoFallbackIcon}>✎</Text>
+            <Feather name="edit-3" size={36} color={colors.muted} />
             <Text style={styles.photoFallbackText}>Manual entry — no photo</Text>
           </View>
         )}
@@ -152,6 +159,17 @@ export default function MealDetail() {
           />
         </View>
       </ScrollView>
+
+      <ConfirmSheet
+        visible={confirmOpen}
+        title={`Delete "${m.meal_name}"?`}
+        body="You can re-log it later — no credits charged."
+        confirmLabel="Delete"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={handleConfirmedDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -196,6 +214,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
   close: { ...typography.bodyMedium, color: colors.forest },
   title: { ...typography.h3, color: colors.forest },
   bodyText: { ...typography.body, color: colors.muted },
@@ -212,7 +231,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  photoFallbackIcon: { fontSize: 48, color: colors.muted },
   photoFallbackText: { ...typography.small, color: colors.muted },
 
   header: { paddingHorizontal: spacing.lg, gap: spacing.xxs },

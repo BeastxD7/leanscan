@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { useQueryClient } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 
 import { Button } from '../../src/components/Input';
 import { colors, typography, spacing, radius } from '../../src/theme';
@@ -106,10 +107,10 @@ export default function Scan() {
         const conf = data.estimate.confidence;
         const msg =
           conf === 'high'
-            ? "The AI is highly confident (>90%) that this isn't a meal — 1 credit used. Try a photo of food on a plate."
+            ? "We couldn't find any food or drink in this photo — 1 credit used."
             : conf === 'medium'
-              ? "The AI doesn't think this is a meal — 1 credit used. Try a clearer photo of food on a plate."
-              : "The AI wasn't sure this is food — 1 credit used. Try a clearer photo on a plate or in a bowl.";
+              ? "Not sure what's in this photo — 1 credit used. Try a clearer shot of the food, drink, or wrapper."
+              : 'No food found — 1 credit used. Try framing the item more directly.';
         toast.info(msg, 5000);
         setPhase('idle');
         setLocalUri(null);
@@ -182,7 +183,7 @@ export default function Scan() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.topBar}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.close}>✕</Text>
+          <Feather name="x" size={22} color={colors.forest} />
         </Pressable>
         <Text style={styles.title}>Scan meal</Text>
         <View style={{ width: 24 }} />

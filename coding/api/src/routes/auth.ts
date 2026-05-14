@@ -124,17 +124,7 @@ async function issueTokensFor(opts: {
 authRouter.post(
   '/signup',
   asyncHandler(async (req, res) => {
-    // TEMP DEBUG — confirm what mobile actually sends
-    logger.info({ rawBody: req.body }, '[signup] raw request body');
     const input = signupSchema.parse(req.body);
-    logger.info(
-      {
-        parsedFirstName: input.first_name,
-        parsedLastName: input.last_name,
-        parsedUsername: input.username,
-      },
-      '[signup] parsed input',
-    );
     const { email, password } = input;
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -153,22 +143,18 @@ authRouter.post(
     const passwordHash = await hashPassword(password);
 
     const user = await prisma.$transaction(async (tx) => {
-      const createData = {
-        email,
-        passwordHash,
-        creditBalance: config.CREDITS_INITIAL_GRANT,
-        ...(input.username ? { username: input.username } : {}),
-        ...(input.first_name ? { firstName: input.first_name } : {}),
-        ...(input.last_name ? { lastName: input.last_name } : {}),
-        ...(input.date_of_birth ? { dateOfBirth: new Date(input.date_of_birth) } : {}),
-        ...(input.sex ? { sex: input.sex } : {}),
-      };
-      logger.info({ createData: { ...createData, passwordHash: '<redacted>' } }, '[signup] prisma.user.create data');
-      const u = await tx.user.create({ data: createData });
-      logger.info(
-        { savedFirstName: u.firstName, savedLastName: u.lastName, savedUsername: u.username, userId: u.id },
-        '[signup] prisma.user.create result',
-      );
+      const u = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          creditBalance: config.CREDITS_INITIAL_GRANT,
+          ...(input.username ? { username: input.username } : {}),
+          ...(input.first_name ? { firstName: input.first_name } : {}),
+          ...(input.last_name ? { lastName: input.last_name } : {}),
+          ...(input.date_of_birth ? { dateOfBirth: new Date(input.date_of_birth) } : {}),
+          ...(input.sex ? { sex: input.sex } : {}),
+        },
+      });
       await tx.creditLedger.create({
         data: {
           userId: u.id,
