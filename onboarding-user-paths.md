@@ -1,6 +1,6 @@
 # LeanScan — Onboarding User Paths & Experience Deltas
 
-Last updated: 14 May 2026 (Tier 1 gaps closed: medication-aware target + local notifications)
+Last updated: 14 May 2026 (Tier 1 + Tier 2 closed: medication target, notifications, BMR/calorie, goal copy, weight progress strip)
 Author: product strategy notes — Shashank + co-pilot
 Status: living doc; reflects code as shipped on `main` at the time of writing
 
@@ -8,9 +8,9 @@ Status: living doc; reflects code as shipped on `main` at the time of writing
 
 ## TL;DR (read this first)
 
-LeanScan's onboarding collects **six screens of data** about a new user. As of the Tier 1 close-out, the live product **differentiates the experience on five of those inputs** — weight, activity, goal, **medication**, and **reminder preferences (time + meal-nudge toggle)**.
+LeanScan's onboarding collects **six screens of data** about a new user. As of the Tier 2 close-out (14 May 2026), the live product **differentiates the experience on nine of those inputs** — weight, activity, goal, medication, reminder time, meal-nudge toggle, sex, DOB, height, **and goal weight**. Goal also drives the home eyebrow and empty-state copy.
 
-Still unused: sex, DOB, height, goal weight. The data sits in the database waiting for features that don't exist yet (BMR / calorie targets, weigh-in tracking, age-aware protein guidance).
+Still unused: dose / dose start date (no symptom tracker yet), display name (rarely needed), `units_metric` (everything renders metric), `dashboard_priority` (always protein-first). The dataset-to-experience gap is now mostly closed. Remaining gaps are features waiting to ship, not data we never wire up.
 
 This is not necessarily wrong — capturing data early is cheap, and lets us light up segmented experiences later without re-asking. But it does mean the onboarding's perceived sophistication ("we built a personalized plan for you") doesn't match the delivered sophistication ("we computed one number from three of your answers"). The gap matters because most users will sniff that out, and the moment they do, the rest of the experience feels generic.
 
@@ -246,12 +246,12 @@ A clean inventory of what we ask for vs what we do with it. Updated 14 May 2026.
 | `first_name` | Signup | Yes | Home greeting |
 | `last_name` | Signup | Yes | Home greeting (when first+last fits ≤16 chars) |
 | `username` | Signup | Yes | Greeting fallback |
-| `date_of_birth` | Signup | Yes | **Nothing** |
-| `sex` | Signup | Yes | **Nothing** |
+| `date_of_birth` | Signup | Yes | Feeds BMR (age) → calorie target |
+| `sex` | Signup | Yes | Feeds BMR formula choice → calorie target |
 | `goal` | Onboarding | Yes | Protein target |
-| `height_cm` | Onboarding | Yes | **Nothing** |
+| `height_cm` | Onboarding | Yes | Feeds BMR → calorie target |
 | `weight_kg` | Onboarding | Yes | Protein target |
-| `goal_weight_kg` | Onboarding | Yes | **Nothing** |
+| `goal_weight_kg` | Onboarding | Yes | Home weight strip (current → goal + delta) |
 | `activity_level` | Onboarding | Yes | Protein target |
 | `medication` | Onboarding | Yes | Protein target bump (GLP-1 + cut) + home banner + Done-screen reasoning |
 | `medication_dose` | Settings only | Yes | **Nothing** |
@@ -275,18 +275,13 @@ Each of these closes a specific "collected but unused" gap. Listed roughly by im
 
 2. ~~Notification system~~ — **shipped 14 May 2026.** `coding/app/src/lib/notifications.ts` provides the service. Daily weigh-in notification at user's configured time + 13:00 meal nudge when enabled. Permission requested after onboarding. Re-applied on cold start. Editable in Settings with permission-status row.
 
-### Tier 2 — uses data we already collect for visible payoff
+### Tier 2 — uses data we already collect for visible payoff — ✅ SHIPPED
 
-3. **Goal weight progress UI.** A small horizontal progress bar somewhere on the home screen: "78 kg → 72 kg goal." Requires a weigh-in feature (one new endpoint, one mobile screen, ~3 hours). Big perceived sophistication boost from a small surface.
+3. ~~**Goal weight progress UI**~~ — **shipped 14 May 2026.** Home shows a "Weight" strip with `current → goal kg` and a directional delta ("X kg to goal" / "X kg below goal" / "At goal"). Tapping opens `WeighInSheet` for a one-input update that PATCHes weight_kg, with the auth store synced so protein + calorie targets recompute instantly. v1 limitation: static delta, no history table or trend chart yet (Tier 3+).
 
-4. **Goal-specific home copy.** Variations on the greeting subtitle keyed off `goal`:
-   - `lose`: "On a cut. Protein keeps you full."
-   - `build`: "Building. Eat above maintenance."
-   - `recomp`: "Recomping. Hit protein, watch the scale slowly."
-   - `maintain`: "Steady state. Stay consistent."
-   Trivial code change, makes the goal selection feel respected.
+4. ~~**Goal-specific home copy**~~ — **shipped 14 May 2026.** Amber eyebrow above greeting reads CUTTING / BUILDING / RECOMPING / MAINTAINING keyed off `user.goal`. Empty-state greeting subtitle varies per goal too: "On a cut. Let's log your first meal — protein keeps you full." for cutters, etc.
 
-5. **BMR / calorie target using height + sex + DOB + weight + activity.** Mifflin-St Jeor formula. Once you have that, the home screen can show calories with framing ("400 kcal under maintenance today") instead of a raw count. This is what every other tracker does, and it's the first thing returning users from MyFitnessPal will look for.
+5. ~~**BMR / calorie target using height + sex + DOB + weight + activity.**~~ **Shipped 14 May 2026.** Mifflin-St Jeor BMR + activity TDEE multiplier + goal adjustment (lose -500, recomp -200, maintain 0, build +300). Embedded in `/auth/me` and `/profile` responses as derived fields `bmr_kcal`, `tdee_kcal`, `calorie_target_kcal`. Home screen shows a calorie strip below the protein ring: "480 / 1820 kcal · 1340 left · 200 under maintenance." Done screen also shows the calorie target alongside protein.
 
 ### Tier 3 — defer until after first user contact
 

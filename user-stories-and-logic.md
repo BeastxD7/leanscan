@@ -281,6 +281,41 @@ protein_target_g := round(weight_kg × multiplier)
 
 **Inputs that DO NOT affect the target today:** sex, age, height, goal weight, dose, dose start date.
 
+### 2.1.5 Calorie target calculation (Tier 2 — shipped 14 May 2026)
+
+Derived server-side via `coding/api/src/lib/energyTargets.ts`; mirrored on mobile for the Done screen preview.
+
+```
+# Mifflin-St Jeor BMR
+if sex == 'male':   bmr := 10·weight + 6.25·height - 5·age + 5
+if sex == 'female': bmr := 10·weight + 6.25·height - 5·age - 161
+otherwise:          bmr := average of the two formulas
+
+# Age fallback: 30 if DOB missing
+# Activity multiplier
+tdee := bmr × activity_mult
+  sedentary 1.2 / light 1.375 / moderate 1.55 / active 1.725
+
+# Goal adjustment
+calorie_target := tdee + goal_adj
+  lose -500 / recomp -200 / maintain 0 / build +300
+```
+
+**Returns null if weight or height is missing.** Home screen degrades to no calorie strip in that case.
+
+**Exposed as derived fields** in every serialized user response: `bmr_kcal`, `tdee_kcal`, `calorie_target_kcal`. Not stored in the DB — recomputed on every read. Cheap (~10 ns) and avoids migration overhead.
+
+**Worked persona examples (calories):**
+
+| Persona | Inputs | BMR | TDEE | Daily target |
+|---|---|---|---|---|
+| Priya (cut, sedentary, female, 30y, 65kg, 162cm) | — | 1313 | 1576 | **1076** (−500 cut) |
+| Karan (build, active, male, 28y, 80kg, 178kg) | — | 1769 | 3052 | **3352** (+300 surplus) |
+| Devadiga (lose, light, male, 38y, 95kg, 175cm) | — | 1764 | 2425 | **1925** (−500 cut) |
+| Sara (maintain, moderate, female, 45y, 72kg, 168cm) | — | 1340 | 2077 | **2077** (maintenance) |
+
+Same medication-aware bump that applies to protein does NOT apply to calories — GLP-1 + cut doesn't change the calorie target. (We could revisit; current behavior matches generic clinical guidance.)
+
 ### 2.2 GLP-1 medication set
 
 `{ozempic, wegovy, mounjaro, zepbound, saxenda, compounded_semaglutide, compounded_tirzepatide}`.
@@ -464,12 +499,12 @@ That's not wrong. It's calibrated. Active builders on Mounjaro don't need more p
 
 ### 3.5 Why some answers don't matter
 
-In one place, plainly:
+In one place, plainly (post-Tier-2 partial):
 
-- **Sex** — collected at signup. Used for nothing in v1. Slated for BMR calc (Mifflin-St Jeor) when calorie targets ship.
-- **DOB / age** — same.
-- **Height** — same.
-- **Goal weight** — collected; surfaced in Settings; never visualized. Needs a weigh-in feature to be useful.
+- **Sex** — collected at signup. Used in Mifflin-St Jeor BMR formula selection (male / female / averaged for other).
+- **DOB / age** — used in BMR (subtract 5 kcal × age).
+- **Height** — used in BMR (6.25 × height in cm).
+- **Goal weight** — now drives the home weight strip (current → goal + delta) and the WeighInSheet update flow. History/trend chart deferred.
 - **Dose / dose start date** — collected in Settings only. No injection-day awareness yet.
 - **Display name override** — falls through after `first_name`/`last_name`/`username` in greeting; works but rarely needed.
 - **`units_metric` flag** — always renders metric regardless.

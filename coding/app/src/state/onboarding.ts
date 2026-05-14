@@ -126,3 +126,75 @@ export function calculateProteinTarget(input: {
     reasoning,
   };
 }
+
+/**
+ * Mobile mirror of the backend energy-target math (BMR / TDEE / daily kcal).
+ * Used only for the Done screen preview; the home screen reads the server-side
+ * authoritative values via /auth/me. Keep this in sync with
+ * coding/api/src/lib/energyTargets.ts.
+ */
+const ACTIVITY_TDEE_MULTIPLIERS: Record<string, number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  active: 1.725,
+};
+
+const GOAL_KCAL_ADJUSTMENT: Record<string, number> = {
+  lose: -500,
+  recomp: -200,
+  maintain: 0,
+  build: 300,
+};
+
+function ageFromDob(dob: string | null | undefined): number | null {
+  if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) return null;
+  const d = new Date(dob + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getUTCFullYear() - d.getUTCFullYear();
+  const m = now.getUTCMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age -= 1;
+  return age >= 0 && age < 120 ? age : null;
+}
+
+export function calculateEnergyTargets(input: {
+  weightKg: number | null;
+  heightCm: number | null;
+  sex: Sex | string | null | undefined;
+  dateOfBirth: string | null | undefined;
+  activityLevel: ActivityLevel | null | undefined;
+  goal: Goal | null | undefined;
+}): {
+  bmr_kcal: number | null;
+  tdee_kcal: number | null;
+  calorie_target_kcal: number | null;
+} {
+  if (!input.weightKg || !input.heightCm) {
+    return { bmr_kcal: null, tdee_kcal: null, calorie_target_kcal: null };
+  }
+  const age = ageFromDob(input.dateOfBirth) ?? 30;
+
+  let bmr: number;
+  if (input.sex === 'male') {
+    bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age + 5;
+  } else if (input.sex === 'female') {
+    bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age - 161;
+  } else {
+    const male = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age + 5;
+    const female = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age - 161;
+    bmr = (male + female) / 2;
+  }
+
+  const activityMult =
+    ACTIVITY_TDEE_MULTIPLIERS[input.activityLevel ?? 'sedentary'] ?? 1.2;
+  const tdee = bmr * activityMult;
+  const goalAdj = GOAL_KCAL_ADJUSTMENT[input.goal ?? 'maintain'] ?? 0;
+  const target = tdee + goalAdj;
+
+  return {
+    bmr_kcal: Math.round(bmr),
+    tdee_kcal: Math.round(tdee),
+    calorie_target_kcal: Math.round(target),
+  };
+}

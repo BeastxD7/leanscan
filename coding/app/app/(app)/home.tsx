@@ -27,6 +27,7 @@ import { MealCard } from '../../src/components/MealCard';
 import { RecentChips, type RecentChipItem } from '../../src/components/RecentChips';
 import { ConfirmSheet } from '../../src/components/ConfirmSheet';
 import { LogoMark } from '../../src/components/LogoMark';
+import { WeighInSheet } from '../../src/components/WeighInSheet';
 import { cancelAllReminders } from '../../src/lib/notifications';
 
 export default function Home() {
@@ -124,6 +125,7 @@ export default function Home() {
 
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [weighInOpen, setWeighInOpen] = useState(false);
 
   function handleSignOut() {
     setSignOutOpen(true);
@@ -192,13 +194,14 @@ export default function Home() {
         }
       >
         <View style={styles.heroSection}>
+          {goalEyebrow(user?.goal) ? (
+            <Text style={styles.goalEyebrow}>{goalEyebrow(user?.goal)}</Text>
+          ) : null}
           <Text style={styles.greeting}>
             {greeting()}, {displayName(user)}.
           </Text>
           <Text style={styles.greetingSub}>
-            {meals.length === 0
-              ? "Let's log your first meal of the day."
-              : `${meals.length} meal${meals.length === 1 ? '' : 's'} so far.`}
+            {greetingSubtitle(user?.goal, meals.length)}
           </Text>
         </View>
 
@@ -227,6 +230,29 @@ export default function Home() {
           <MacroPill label="Carbs" value={`${Math.round(totals.carbs_g)}g`} />
           <MacroPill label="Fat" value={`${Math.round(totals.fat_g)}g`} />
         </View>
+
+        {user?.calorie_target_kcal != null ? (
+          <CalorieStrip
+            consumed={Math.round(totals.calories)}
+            target={user.calorie_target_kcal}
+            tdee={user.tdee_kcal ?? null}
+          />
+        ) : null}
+
+        {user?.weight_kg != null && user?.goal_weight_kg != null && user.goal_weight_kg !== user.weight_kg ? (
+          <WeightStrip
+            currentKg={user.weight_kg}
+            goalKg={user.goal_weight_kg}
+            onTapWeighIn={() => setWeighInOpen(true)}
+          />
+        ) : user?.weight_kg != null ? (
+          // No goal weight set — still expose a "Weigh in" CTA so the user can
+          // update their weight directly from home without going to Settings.
+          <Pressable onPress={() => setWeighInOpen(true)} style={styles.weightCtaInline}>
+            <Feather name="activity" size={14} color={colors.muted} />
+            <Text style={styles.weightCtaText}>Last weight: {user.weight_kg} kg · tap to update</Text>
+          </Pressable>
+        ) : null}
 
         <RecentChips
           items={recents.data?.items ?? []}
@@ -290,7 +316,112 @@ export default function Home() {
         onConfirm={performSignOut}
         onCancel={() => setSignOutOpen(false)}
       />
+
+      <WeighInSheet
+        visible={weighInOpen}
+        initialKg={user?.weight_kg ?? null}
+        onClose={() => setWeighInOpen(false)}
+      />
     </SafeAreaView>
+  );
+}
+
+/**
+ * Calorie progress strip — shows consumed / target with the TDEE-relative
+ * framing ("X under maintenance" / "X over maintenance"). Replaces the bare
+ * kcal number that used to live inside the protein ring.
+ */
+function CalorieStrip({
+  consumed,
+  target,
+  tdee,
+}: {
+  consumed: number;
+  target: number;
+  tdee: number | null;
+}) {
+  const remaining = Math.max(0, target - consumed);
+  const overBy = Math.max(0, consumed - target);
+  const tdeeDelta = tdee != null ? consumed - tdee : null;
+
+  // Primary headline: "consumed / target kcal"
+  // Secondary: "X left" or "X over"; plus a "Y under maintenance" anchor
+  const primary = `${consumed} / ${target} kcal`;
+  const secondaryParts: string[] = [];
+  if (overBy > 0) {
+    secondaryParts.push(`${overBy} over target`);
+  } else {
+    secondaryParts.push(`${remaining} left`);
+  }
+  if (tdeeDelta !== null) {
+    const abs = Math.abs(Math.round(tdeeDelta));
+    if (tdeeDelta < 0) secondaryParts.push(`${abs} under maintenance`);
+    else if (tdeeDelta > 0) secondaryParts.push(`${abs} over maintenance`);
+    else secondaryParts.push('at maintenance');
+  }
+
+  const pct = Math.max(0, Math.min(1, consumed / target));
+
+  return (
+    <View style={styles.calStrip}>
+      <View style={styles.calBarTrack}>
+        <View style={[styles.calBarFill, { width: `${pct * 100}%` }]} />
+      </View>
+      <View style={styles.calTextRow}>
+        <Text style={styles.calPrimary}>{primary}</Text>
+        <Text style={styles.calSecondary}>{secondaryParts.join(' · ')}</Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Weight progress strip — shows current vs goal weight with the directional
+ * delta ("X kg to go" or "X kg over goal" or "At goal"). Tap to open the
+ * WeighInSheet for a fast update without bouncing to Settings.
+ *
+ * v1 limitation: this shows static delta, not historical progress. Adding a
+ * starting_weight_kg field or a WeighIn history table would let us show
+ * "60% of the way to your goal" — that's Tier 3 work.
+ */
+function WeightStrip({
+  currentKg,
+  goalKg,
+  onTapWeighIn,
+}: {
+  currentKg: number;
+  goalKg: number;
+  onTapWeighIn: () => void;
+}) {
+  const delta = currentKg - goalKg;
+  const absDelta = Math.abs(delta).toFixed(1);
+  // Friendly tagline keyed off direction:
+  //   delta > 0 = above goal (typical cutter case)
+  //   delta < 0 = below goal (overshoot or building toward goal weight)
+  //   delta ≈ 0 = at goal
+  const atGoal = Math.abs(delta) < 0.1;
+  const tagline = atGoal
+    ? 'At goal'
+    : delta > 0
+      ? `${absDelta} kg to goal`
+      : `${absDelta} kg below goal`;
+
+  return (
+    <Pressable
+      onPress={onTapWeighIn}
+      style={({ pressed }) => [styles.weightStrip, pressed && styles.weightStripPressed]}
+    >
+      <View style={styles.weightLeft}>
+        <Text style={styles.weightLabel}>Weight</Text>
+        <Text style={styles.weightMain}>
+          {currentKg} <Text style={styles.weightArrow}>→</Text> {goalKg} kg
+        </Text>
+      </View>
+      <View style={styles.weightRight}>
+        <Text style={styles.weightDelta}>{tagline}</Text>
+        <Text style={styles.weightTap}>Tap to weigh in</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -309,6 +440,39 @@ function greeting(): string {
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+/**
+ * Goal-keyed eyebrow shown above the greeting. Honors the goal selection from
+ * onboarding so the home doesn't feel generic. Returns null when no goal is
+ * set so the layout collapses cleanly.
+ */
+function goalEyebrow(goal: string | null | undefined): string | null {
+  switch (goal) {
+    case 'lose': return 'CUTTING';
+    case 'build': return 'BUILDING';
+    case 'recomp': return 'RECOMPING';
+    case 'maintain': return 'MAINTAINING';
+    default: return null;
+  }
+}
+
+/**
+ * Goal-keyed greeting subtitle that swaps the meals-counter for a tone-of-voice
+ * line that matches the user's goal. Falls back to neutral copy when no goal
+ * is set.
+ */
+function greetingSubtitle(goal: string | null | undefined, mealCount: number): string {
+  if (mealCount === 0) {
+    switch (goal) {
+      case 'lose':     return "On a cut. Let's log your first meal — protein keeps you full.";
+      case 'build':    return "Building. Let's log your first meal — eat above maintenance.";
+      case 'recomp':   return "Recomping. Let's log your first meal — protein first, scale slowly.";
+      case 'maintain': return "Steady state. Let's log your first meal of the day.";
+      default:         return "Let's log your first meal of the day.";
+    }
+  }
+  return `${mealCount} meal${mealCount === 1 ? '' : 's'} so far.`;
 }
 
 /**
@@ -414,6 +578,11 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   heroSection: { gap: spacing.xxs, marginTop: spacing.xs },
+  goalEyebrow: {
+    ...typography.eyebrow,
+    color: colors.amber,
+    letterSpacing: 1.5,
+  },
   greeting: { ...typography.h2, color: colors.forest },
   greetingSub: { ...typography.body, color: colors.muted },
 
@@ -454,6 +623,66 @@ const styles = StyleSheet.create({
   },
   macroLabel: { ...typography.eyebrow, color: colors.muted },
   macroValue: { ...typography.bodyMedium, color: colors.charcoal },
+
+  // Calorie progress strip — slim horizontal bar + two-line text caption.
+  // Reads protein-first user the same as everyone else: the protein ring stays
+  // hero, calories live below as context.
+  calStrip: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xs,
+  },
+  calBarTrack: {
+    height: 6,
+    backgroundColor: colors.creamDark,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+  },
+  calBarFill: {
+    height: '100%',
+    backgroundColor: colors.forest,
+    borderRadius: radius.pill,
+  },
+  calTextRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  calPrimary: { ...typography.bodyMedium, color: colors.forest },
+  calSecondary: { ...typography.small, color: colors.muted },
+
+  // Weight strip (when goal weight is set)
+  weightStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  weightStripPressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  weightLeft: { gap: spacing.xxs },
+  weightLabel: { ...typography.eyebrow, color: colors.muted },
+  weightMain: { ...typography.bodyMedium, color: colors.forest, fontSize: 16 },
+  weightArrow: { color: colors.amber },
+  weightRight: { alignItems: 'flex-end', gap: spacing.xxs },
+  weightDelta: { ...typography.bodyMedium, color: colors.forest, fontSize: 14 },
+  weightTap: { ...typography.small, color: colors.muted, fontSize: 11 },
+
+  // Inline CTA shown when weight is set but no goal weight — gives the user a
+  // way to log weight from home without forcing a Settings detour.
+  weightCtaInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginHorizontal: spacing.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
+  weightCtaText: { ...typography.small, color: colors.muted },
 
   listHeader: {
     flexDirection: 'row',

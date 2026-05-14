@@ -147,6 +147,9 @@ function calculateProteinTarget(opts: {
   };
 }
 
+// Energy targets (BMR/TDEE/calorie_target) live in lib/energyTargets.ts so
+// serializeUser can use them too.
+
 // kept as a thin alias for backwards compat; serializeUser is the new source of truth
 const serializeProfile = serializeUser;
 

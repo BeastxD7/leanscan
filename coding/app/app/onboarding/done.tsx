@@ -14,7 +14,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button, FormError } from '../../src/components/Input';
 import { StepHeader } from '../../src/components/StepHeader';
 import { colors, typography, spacing, radius } from '../../src/theme';
-import { useOnboardingStore, calculateProteinTarget } from '../../src/state/onboarding';
+import {
+  useOnboardingStore,
+  calculateProteinTarget,
+  calculateEnergyTargets,
+} from '../../src/state/onboarding';
 import { useAuthStore } from '../../src/state/auth';
 import { api, ApiError } from '../../src/lib/api';
 import { toast } from '../../src/state/toast';
@@ -26,6 +30,9 @@ export default function DoneStep() {
   const reset = useOnboardingStore((s) => s.reset);
   const onboarding = useOnboardingStore();
   const patchUser = useAuthStore((s) => s.patchUser);
+  // Sex and DOB live in the auth store (collected at signup), not onboarding.
+  // Need both for the calorie target preview.
+  const authUser = useAuthStore((s) => s.user);
 
   const calc = useMemo(
     () =>
@@ -39,6 +46,26 @@ export default function DoneStep() {
   );
   const proteinTarget = calc.value;
   const reasoning = calc.reasoning;
+
+  const energy = useMemo(
+    () =>
+      calculateEnergyTargets({
+        weightKg: onboarding.weightKg,
+        heightCm: onboarding.heightCm,
+        sex: authUser?.sex ?? null,
+        dateOfBirth: authUser?.date_of_birth ?? null,
+        activityLevel: onboarding.activityLevel,
+        goal: onboarding.goal,
+      }),
+    [
+      onboarding.weightKg,
+      onboarding.heightCm,
+      onboarding.activityLevel,
+      onboarding.goal,
+      authUser?.sex,
+      authUser?.date_of_birth,
+    ],
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -129,6 +156,13 @@ export default function DoneStep() {
           <Text style={styles.targetLabel}>protein per day</Text>
         </View>
 
+        {energy.calorie_target_kcal != null ? (
+          <View style={styles.calRow}>
+            <Text style={styles.calLabel}>Calories</Text>
+            <Text style={styles.calValue}>{energy.calorie_target_kcal.toLocaleString()} kcal/day</Text>
+          </View>
+        ) : null}
+
         {reasoning ? (
           <View style={styles.reasoningCard}>
             <Text style={styles.reasoningEyebrow}>Why this number</Text>
@@ -186,6 +220,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: spacing.md,
   },
+  calRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  calLabel: { ...typography.eyebrow, color: colors.muted },
+  calValue: { ...typography.bodyMedium, color: colors.forest, fontSize: 18 },
   reasoningCard: {
     backgroundColor: colors.creamDark,
     borderRadius: radius.lg,

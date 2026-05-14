@@ -25,6 +25,12 @@ export interface User {
   weight_kg?: number | null;
   goal_weight_kg?: number | null;
   activity_level?: string | null;
+  medication?: string | null;
+  // Derived energy targets — computed server-side from sex+DOB+height+weight+activity+goal.
+  // Null when the user hasn't provided enough data (rare post-onboarding).
+  bmr_kcal?: number | null;
+  tdee_kcal?: number | null;
+  calorie_target_kcal?: number | null;
 }
 
 interface AuthState {

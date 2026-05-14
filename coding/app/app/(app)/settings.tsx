@@ -25,6 +25,7 @@ import { Feather } from '@expo/vector-icons';
 
 import { Input, Button, FormError } from '../../src/components/Input';
 import { DatePickerField } from '../../src/components/DatePickerField';
+import { TimePickerField } from '../../src/components/TimePickerField';
 import { colors, typography, spacing, radius } from '../../src/theme';
 import { api, ApiError } from '../../src/lib/api';
 import { useAuthStore } from '../../src/state/auth';
@@ -369,13 +370,11 @@ export default function Settings() {
             </View>
           )}
 
-          <Input
-            label="Weigh-in reminder (HH:MM)"
+          <TimePickerField
+            label="Weigh-in reminder"
             value={reminderTime}
-            onChangeText={setReminderTime}
-            placeholder="08:00"
-            keyboardType="numbers-and-punctuation"
-            autoCapitalize="none"
+            onChange={setReminderTime}
+            placeholder="Tap to pick"
           />
 
           <View style={styles.toggleRow}>
