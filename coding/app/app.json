@@ -7,7 +7,6 @@
     "icon": "./assets/icon.png",
     "scheme": "leanscan",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -28,14 +27,13 @@
     "android": {
       "package": "app.leanscan.android",
       "versionCode": 1,
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a3a2e"
       },
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -53,13 +51,32 @@
           "cameraPermission": "LeanScan needs camera access to scan meals."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiUrl": "http://localhost:3000"
+      "apiUrl": "http://20.244.27.80:3000",
+      "router": {},
+      "eas": {
+        "projectId": "3f57541b-d985-4cf7-ba72-d025f2f7be92"
+      }
+    },
+    "owner": "shashank.02",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3f57541b-d985-4cf7-ba72-d025f2f7be92"
     }
   }
 }
