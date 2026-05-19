@@ -1,0 +1,46 @@
+# Production compose for LeanScan API on a VM.
+#
+# MVP setup: API is exposed directly on port 3000 over plain HTTP.
+# Mobile clients call http://<vm-public-ip>:3000 with platform ATS exceptions.
+#
+# When you graduate to a real domain + HTTPS, switch the port binding to
+# "127.0.0.1:3000:3000" and put nginx (deploy/nginx/leanscan.conf) in front.
+#
+# Usage on the VM:
+#   cd /opt/leanscan/coding/api
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml logs -f api
+#   docker compose -f docker-compose.prod.yml exec api npx prisma migrate deploy
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: leanscan-api:latest
+    container_name: leanscan-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      UPLOADS_DIR: /app/uploads
+    ports:
+      # Public exposure on 3000. Azure NSG / AWS SG controls who can reach it.
+      - "0.0.0.0:3000:3000"
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  uploads:
+    name: leanscan_uploads

@@ -333,8 +333,20 @@ export default function Settings() {
           <SectionHeader title="Reminders" />
 
           {/* Permission status row — only meaningful before grant. After grant
-              we hide it; OS settings is the source of truth from then on. */}
-          {permStatus !== 'granted' && (
+              we hide it; OS settings is the source of truth from then on.
+              `unavailable` is the Expo Go on Android case — shown as info only,
+              no CTA because there's nothing to do until a dev build is made. */}
+          {permStatus === 'unavailable' && (
+            <View style={[styles.permRow, styles.permRowInfo]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.permTitle}>Notifications need a dev build</Text>
+                <Text style={styles.permSub}>
+                  Expo Go can&apos;t schedule local notifications on Android. They&apos;ll work once you install a development build or production app.
+                </Text>
+              </View>
+            </View>
+          )}
+          {(permStatus === 'denied' || permStatus === 'undetermined') && (
             <View style={styles.permRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.permTitle}>
@@ -476,6 +488,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
+  },
+  // Info variant — used for the "needs a dev build" case where there's nothing
+  // the user can do, so we shouldn't alarm them with a red error border.
+  permRowInfo: {
+    backgroundColor: colors.creamDark,
+    borderColor: colors.lineStrong,
   },
   permTitle: { ...typography.bodyMedium, color: colors.forest },
   permSub: { ...typography.small, color: colors.muted, marginTop: spacing.xxs },
