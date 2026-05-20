@@ -51,14 +51,11 @@ export default function Home() {
       (async () => {
         try {
           const fresh = await api.me();
-          // eslint-disable-next-line no-console
-          console.log('[home] /auth/me result:', JSON.stringify(fresh));
           if (!cancelled && fresh) {
             await setUser(fresh);
           }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn('[home] /auth/me failed:', err);
+        } catch {
+          // Silent — user can pull to refresh if profile data looks stale.
         }
       })();
       return () => {

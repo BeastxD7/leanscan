@@ -3,28 +3,20 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, typography, spacing, radius } from '../src/theme';
-import { api, API_URL, ApiError } from '../src/lib/api';
+import { api } from '../src/lib/api';
 
 export default function Welcome() {
   const router = useRouter();
   const [healthStatus, setHealthStatus] = useState<'checking' | 'ok' | 'error'>('checking');
-  const [healthDetail, setHealthDetail] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.health();
-        if (!cancelled) {
-          setHealthStatus('ok');
-          setHealthDetail(`v${data.version} · up ${data.uptime_s}s`);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setHealthStatus('error');
-          const msg = err instanceof ApiError ? err.message : (err as Error).message;
-          setHealthDetail(msg);
-        }
+        await api.health();
+        if (!cancelled) setHealthStatus('ok');
+      } catch {
+        if (!cancelled) setHealthStatus('error');
       }
     })();
     return () => {
@@ -67,7 +59,7 @@ export default function Welcome() {
         </View>
 
         <View style={styles.footer}>
-          <ApiStatus status={healthStatus} detail={healthDetail} />
+          <ApiStatus status={healthStatus} />
         </View>
       </View>
     </SafeAreaView>
@@ -76,16 +68,14 @@ export default function Welcome() {
 
 function ApiStatus({
   status,
-  detail,
 }: {
   status: 'checking' | 'ok' | 'error';
-  detail: string;
 }) {
   if (status === 'checking') {
     return (
       <View style={styles.statusRow}>
         <ActivityIndicator size="small" color={colors.muted} />
-        <Text style={styles.statusText}>Connecting to {prettyHost(API_URL)}…</Text>
+        <Text style={styles.statusText}>Connecting…</Text>
       </View>
     );
   }
@@ -93,9 +83,7 @@ function ApiStatus({
     return (
       <View style={styles.statusRow}>
         <View style={[styles.statusPip, { backgroundColor: colors.success }]} />
-        <Text style={styles.statusText}>
-          API reachable · {prettyHost(API_URL)} · {detail}
-        </Text>
+        <Text style={styles.statusText}>Connected</Text>
       </View>
     );
   }
@@ -103,19 +91,10 @@ function ApiStatus({
     <View style={styles.statusRow}>
       <View style={[styles.statusPip, { backgroundColor: colors.error }]} />
       <Text style={[styles.statusText, { color: colors.error }]}>
-        Cannot reach {prettyHost(API_URL)} — {detail}
+        Can&apos;t reach the server. Try again.
       </Text>
     </View>
   );
-}
-
-function prettyHost(url: string): string {
-  try {
-    const u = new URL(url);
-    return u.host;
-  } catch {
-    return url;
-  }
 }
 
 const styles = StyleSheet.create({
