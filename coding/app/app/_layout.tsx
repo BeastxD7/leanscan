@@ -20,6 +20,7 @@ import {
 import { colors } from '../src/theme';
 import { useAuthStore } from '../src/state/auth';
 import { Toaster } from '../src/components/Toaster';
+import { UpdateBanner } from '../src/components/UpdateBanner';
 import { api } from '../src/lib/api';
 import { applyReminders, getPermissionStatus } from '../src/lib/notifications';
 
@@ -71,6 +72,7 @@ export default function RootLayout() {
           }}
         />
         <Toaster />
+        <UpdateBanner />
       </QueryClientProvider>
     </GestureHandlerRootView>
   );
