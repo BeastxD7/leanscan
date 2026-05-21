@@ -31,6 +31,9 @@ export interface User {
   bmr_kcal?: number | null;
   tdee_kcal?: number | null;
   calorie_target_kcal?: number | null;
+  // Account creation timestamp (ISO). Used by History to cap pagination
+  // at the join date — there's no meal data before this.
+  created_at?: string;
 }
 
 interface AuthState {

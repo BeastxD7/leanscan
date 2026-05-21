@@ -38,7 +38,9 @@ import { api } from '../../src/lib/api';
 
 const INITIAL_VISIBLE = 7;
 const PAGE_SIZE = 10;
-const FETCH_WINDOW_DAYS = 90; // pre-fetch this many days of aggregates
+// Hard upper bound — even for long-time users we don't load >730 days at once.
+// The endpoint enforces the same cap.
+const MAX_WINDOW_DAYS = 730;
 
 function isoDate(d: Date): string {
   const yyyy = d.getFullYear();
@@ -53,6 +55,30 @@ function getLastNDates(n: number): string[] {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
     return isoDate(d);
+  });
+}
+
+/**
+ * Days between user join date and today (inclusive of today), capped at
+ * MAX_WINDOW_DAYS. Falls back to 14 if the join date is unknown.
+ */
+function daysSinceJoin(createdAtIso: string | undefined): number {
+  if (!createdAtIso) return 14;
+  const created = new Date(createdAtIso);
+  if (Number.isNaN(created.getTime())) return 14;
+  const today = new Date();
+  const ms = today.getTime() - created.getTime();
+  const days = Math.floor(ms / 86_400_000) + 1; // +1 to include join day itself
+  return Math.max(1, Math.min(MAX_WINDOW_DAYS, days));
+}
+
+function formatJoinDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString([], {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
   });
 }
 
@@ -74,12 +100,25 @@ export default function History() {
   const qc = useQueryClient();
   const proteinTargetG = user?.protein_target_g ?? 0;
 
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Fetch the last 90 days of aggregates in one call. We then render
-  // visibleCount of them, paginated by PAGE_SIZE on demand.
-  const allDates = useMemo(() => getLastNDates(FETCH_WINDOW_DAYS), []);
+  // Total days available = days since the account was created (capped at
+  // MAX_WINDOW_DAYS). Nothing earlier exists — the user wasn't a user yet.
+  const totalDaysAvailable = useMemo(
+    () => daysSinceJoin(user?.created_at),
+    [user?.created_at],
+  );
+
+  // Initial visible = min(7, total). A brand-new account that just signed up
+  // today shows just "Today" — no fake empty days back to a week ago.
+  const [visibleCount, setVisibleCount] = useState(
+    Math.min(INITIAL_VISIBLE, totalDaysAvailable),
+  );
+
+  const allDates = useMemo(
+    () => getLastNDates(totalDaysAvailable),
+    [totalDaysAvailable],
+  );
   const earliestDate = allDates[allDates.length - 1];
 
   const daysQuery = useQuery({
@@ -239,8 +278,9 @@ export default function History() {
 
             {!canShowMore && (
               <Text style={styles.endNote}>
-                Showing the past {allDates.length} days. Use the calendar to
-                jump to a specific date.
+                {user?.created_at
+                  ? `You've been with LeanScan since ${formatJoinDate(user.created_at)}. Nothing to show before then.`
+                  : `Showing the past ${allDates.length} days.`}
               </Text>
             )}
           </>
@@ -249,13 +289,18 @@ export default function History() {
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
 
-      {/* Date picker — Android shows inline dialog, iOS uses spinner overlay */}
+      {/* Date picker — Android shows inline dialog, iOS uses spinner overlay.
+          minimumDate caps it at the join date so users can't jump to dates
+          before their account existed. */}
       {pickerOpen && Platform.OS === 'android' && (
         <DateTimePicker
           value={new Date()}
           mode="date"
           display="default"
           maximumDate={new Date()}
+          minimumDate={
+            user?.created_at ? new Date(user.created_at) : undefined
+          }
           onChange={onPickDate}
         />
       )}
@@ -277,6 +322,9 @@ export default function History() {
               mode="date"
               display="spinner"
               maximumDate={new Date()}
+              minimumDate={
+                user?.created_at ? new Date(user.created_at) : undefined
+              }
               onChange={onPickDate}
               themeVariant="light"
             />
