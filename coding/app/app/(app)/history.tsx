@@ -28,7 +28,6 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
-import Svg, { Circle, Path } from 'react-native-svg';
 import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
@@ -43,10 +42,10 @@ const PAGE_SIZE = 10;
 // The endpoint enforces the same cap.
 const MAX_WINDOW_DAYS = 730;
 
-// Weekly consistency widget: how many trailing weeks to display + how many
-// days-hit count as a "successful" week. 4-of-7 is a meaningful majority,
-// MacroFactor uses similar consistency math.
-const WEEKS_TO_SHOW = 8;
+// Weekly consistency widget: GitHub-style heatmap showing the last 12 weeks
+// as a 7×12 grid (days × weeks). 4-of-7 days hit threshold defines a
+// "successful" week for the streak subtitle.
+const WEEKS_TO_SHOW = 12;
 const WEEK_SUCCESS_THRESHOLD = 4;
 
 function isoDate(d: Date): string {
@@ -192,53 +191,115 @@ function computeWeeklyStreak(
 }
 
 // ---------------------------------------------------------------
-// Weekly dot — SVG so the half-filled "current" state renders crisply
+// Heatmap cell intensity — one cell = one day
+//
+//   future:  pre-join or not-yet-today (renders invisible; preserves grid)
+//   empty:   day with no logged protein
+//   low:     1-49% of protein target
+//   medium:  50-99% of protein target
+//   high:    >= protein target
 // ---------------------------------------------------------------
-function WeekDot({ status }: { status: WeekStatus }) {
-  const size = 14;
-  const r = 5;
-  const cx = size / 2;
-  const cy = size / 2;
+type CellIntensity = 'future' | 'empty' | 'low' | 'medium' | 'high';
 
-  if (status === 'success') {
-    return (
-      <Svg width={size} height={size}>
-        <Circle cx={cx} cy={cy} r={r} fill={colors.amber} />
-      </Svg>
-    );
-  }
-  if (status === 'fail') {
-    return (
-      <Svg width={size} height={size}>
-        <Circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke={colors.lineStrong}
-          strokeWidth={1.5}
-        />
-      </Svg>
-    );
-  }
-  // current — left half filled amber, outlined ring on top
+interface HeatmapCellData {
+  date: string;
+  intensity: CellIntensity;
+}
+
+/**
+ * Build a 7×WEEKS_TO_SHOW grid of cells. Each column is a week (oldest
+ * left → newest right). Each row within a column is Mon..Sun.
+ * Returns the grid plus the count of "high" (target-hit) days.
+ */
+function computeHeatmap(
+  proteinByDate: Map<string, number>,
+  proteinTargetG: number,
+  joinDate: Date | null,
+): { columns: HeatmapCellData[][]; daysHit: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const weekStarts = getWeekStarts(WEEKS_TO_SHOW);
+  let daysHit = 0;
+
+  const columns = weekStarts.map((weekStart) =>
+    Array.from({ length: 7 }, (_, dayIdx) => {
+      const day = new Date(weekStart);
+      day.setDate(weekStart.getDate() + dayIdx);
+      const dateStr = isoDate(day);
+
+      if (joinDate && day < joinDate) {
+        return { date: dateStr, intensity: 'future' as const };
+      }
+      if (day > today) {
+        return { date: dateStr, intensity: 'future' as const };
+      }
+
+      const protein = proteinByDate.get(dateStr) ?? 0;
+      if (protein <= 0) return { date: dateStr, intensity: 'empty' as const };
+
+      const pct = proteinTargetG > 0 ? protein / proteinTargetG : 0;
+      if (pct >= 1) {
+        daysHit++;
+        return { date: dateStr, intensity: 'high' as const };
+      }
+      if (pct >= 0.5) return { date: dateStr, intensity: 'medium' as const };
+      return { date: dateStr, intensity: 'low' as const };
+    }),
+  );
+
+  return { columns, daysHit };
+}
+
+// ---------------------------------------------------------------
+// Heatmap cell — small rounded square, intensity by protein %
+// ---------------------------------------------------------------
+const CELL_FILL: Record<CellIntensity, string> = {
+  future: 'transparent',
+  empty: 'transparent',
+  low: 'rgba(200, 151, 91, 0.25)',
+  medium: 'rgba(200, 151, 91, 0.55)',
+  high: colors.amber,
+};
+
+function HeatmapCell({
+  cell,
+  onPress,
+}: {
+  cell: HeatmapCellData;
+  onPress?: () => void;
+}) {
+  const isFuture = cell.intensity === 'future';
+  const isEmpty = cell.intensity === 'empty';
+  const fill = CELL_FILL[cell.intensity];
+
   return (
-    <Svg width={size} height={size}>
-      <Path
-        d={`M ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx} ${cy + r} Z`}
-        fill={colors.amber}
-      />
-      <Circle
-        cx={cx}
-        cy={cy}
-        r={r}
-        fill="none"
-        stroke={colors.amber}
-        strokeWidth={1.5}
-      />
-    </Svg>
+    <Pressable
+      onPress={isFuture ? undefined : onPress}
+      style={[
+        cellStyles.cell,
+        { backgroundColor: fill },
+        isEmpty && cellStyles.cellEmpty,
+        isFuture && cellStyles.cellFuture,
+      ]}
+    />
   );
 }
+
+const cellStyles = StyleSheet.create({
+  cell: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 3,
+    margin: 1.5,
+  },
+  cellEmpty: {
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  cellFuture: {
+    opacity: 0, // hidden but keeps grid alignment
+  },
+});
 
 function dayLabel(iso: string): { day: string; date: string } {
   const today = isoDate(new Date());
@@ -307,10 +368,10 @@ export default function History() {
     ).length;
   }, [aggByDate, allDates, proteinTargetG, daysQuery.data]);
 
-  // Weekly consistency over the last 8 weeks. We pass per-day protein totals
-  // and the user's join date — the helper handles ISO weeks, threshold, and
-  // half-filled-current-week status.
-  const weeklyStreak = useMemo(() => {
+  // Weekly consistency over the last 12 weeks. We need two things from the
+  // per-day protein totals: the streak count (X weeks running) and the
+  // heatmap cells (7×12 grid).
+  const weekly = useMemo(() => {
     if (proteinTargetG <= 0 || !daysQuery.data) return null;
     const proteinByDate = new Map<string, number>();
     daysQuery.data.days.forEach((d) => proteinByDate.set(d.date, d.protein_g));
@@ -318,7 +379,9 @@ export default function History() {
     if (joinDate && !Number.isNaN(joinDate.getTime())) {
       joinDate.setHours(0, 0, 0, 0);
     }
-    return computeWeeklyStreak(proteinByDate, proteinTargetG, joinDate);
+    const streak = computeWeeklyStreak(proteinByDate, proteinTargetG, joinDate);
+    const heat = computeHeatmap(proteinByDate, proteinTargetG, joinDate);
+    return { ...streak, columns: heat.columns, daysHit: heat.daysHit };
   }, [daysQuery.data, proteinTargetG, user?.created_at]);
 
   useFocusEffect(
@@ -374,30 +437,67 @@ export default function History() {
           )}
         </View>
 
-        {weeklyStreak && (
+        {weekly && (
           <View style={styles.consistencyCard}>
-            <Text style={styles.eyebrow}>
-              LAST {weeklyStreak.weeks.length} WEEKS
-            </Text>
-            <View style={styles.dotsRow}>
-              {weeklyStreak.weeks.map((w) => (
-                <WeekDot
-                  key={w.weekStart.toISOString()}
-                  status={w.status}
-                />
+            <Text style={styles.eyebrow}>LAST {WEEKS_TO_SHOW} WEEKS</Text>
+
+            <View style={styles.heatmapRow}>
+              {/* Day labels (M T W T F S S) */}
+              <View style={styles.heatmapDayCol}>
+                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                  <Text key={i} style={styles.dayLabelTxt}>
+                    {d}
+                  </Text>
+                ))}
+              </View>
+
+              {/* Week columns, oldest left → newest right */}
+              {weekly.columns.map((week, wIdx) => (
+                <View key={wIdx} style={styles.weekCol}>
+                  {week.map((cell) => (
+                    <HeatmapCell
+                      key={cell.date}
+                      cell={cell}
+                      onPress={() =>
+                        router.push(`/(app)/history/${cell.date}`)
+                      }
+                    />
+                  ))}
+                </View>
               ))}
             </View>
+
             <Text style={styles.consistencyLabel}>
-              {weeklyStreak.current === 0
-                ? `Aim for ${WEEK_SUCCESS_THRESHOLD}+ days hitting protein this week.`
-                : `${weeklyStreak.current} ${
-                    weeklyStreak.current === 1 ? 'week' : 'weeks'
+              {weekly.daysHit} {weekly.daysHit === 1 ? 'day' : 'days'} hit your
+              protein target
+              {weekly.current > 0
+                ? ` · ${weekly.current} ${
+                    weekly.current === 1 ? 'week' : 'weeks'
                   } running${
-                    weeklyStreak.longest > weeklyStreak.current
-                      ? ` · Best ${weeklyStreak.longest}`
+                    weekly.longest > weekly.current
+                      ? ` · Best ${weekly.longest}`
                       : ''
-                  }`}
+                  }`
+                : ''}
             </Text>
+
+            {/* Legend */}
+            <View style={styles.legendRow}>
+              <Text style={styles.legendTxt}>Less</Text>
+              <View
+                style={[styles.legendSwatch, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.line }]}
+              />
+              <View
+                style={[styles.legendSwatch, { backgroundColor: CELL_FILL.low }]}
+              />
+              <View
+                style={[styles.legendSwatch, { backgroundColor: CELL_FILL.medium }]}
+              />
+              <View
+                style={[styles.legendSwatch, { backgroundColor: CELL_FILL.high }]}
+              />
+              <Text style={styles.legendTxt}>More</Text>
+            </View>
           </View>
         )}
 
@@ -585,16 +685,51 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     marginBottom: spacing.lg,
   },
-  dotsRow: {
+  heatmapRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
+  },
+  heatmapDayCol: {
+    width: 18,
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+    marginRight: 4,
+  },
+  dayLabelTxt: {
+    ...typography.small,
+    fontSize: 9,
+    color: colors.muted,
+    height: 18,
+    lineHeight: 18,
+    textAlign: 'right',
+  },
+  weekCol: {
+    flex: 1,
+    flexDirection: 'column',
   },
   consistencyLabel: {
     ...typography.small,
     color: colors.muted,
+    marginTop: spacing.xs,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+    marginTop: spacing.xs,
+  },
+  legendTxt: {
+    ...typography.small,
+    fontSize: 10,
+    color: colors.muted,
+    marginHorizontal: 2,
+  },
+  legendSwatch: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
   },
 
   dayCard: {
