@@ -168,6 +168,13 @@ export default function Home() {
             <Text style={styles.creditPillText}>{user?.credit_balance ?? 0} credits</Text>
           </View>
           <Pressable
+            onPress={() => router.push('/(app)/history')}
+            hitSlop={8}
+            style={styles.iconBtn}
+          >
+            <Feather name="calendar" size={20} color={colors.forest} />
+          </Pressable>
+          <Pressable
             onPress={() => router.push('/(app)/settings')}
             hitSlop={8}
             style={styles.iconBtn}
