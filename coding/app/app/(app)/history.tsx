@@ -28,6 +28,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
+import Svg, { Circle, Path } from 'react-native-svg';
 import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
@@ -41,6 +42,12 @@ const PAGE_SIZE = 10;
 // Hard upper bound — even for long-time users we don't load >730 days at once.
 // The endpoint enforces the same cap.
 const MAX_WINDOW_DAYS = 730;
+
+// Weekly consistency widget: how many trailing weeks to display + how many
+// days-hit count as a "successful" week. 4-of-7 is a meaningful majority,
+// MacroFactor uses similar consistency math.
+const WEEKS_TO_SHOW = 8;
+const WEEK_SUCCESS_THRESHOLD = 4;
 
 function isoDate(d: Date): string {
   const yyyy = d.getFullYear();
@@ -80,6 +87,157 @@ function formatJoinDate(iso: string): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+// ---------------------------------------------------------------
+// Weekly consistency math
+// ---------------------------------------------------------------
+
+type WeekStatus = 'success' | 'fail' | 'current';
+
+interface WeekStat {
+  weekStart: Date;
+  daysHit: number;
+  status: WeekStatus;
+}
+
+/** Monday 00:00 of the ISO week containing d (local time). */
+function isoMonday(d: Date): Date {
+  const result = new Date(d);
+  result.setHours(0, 0, 0, 0);
+  const day = result.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  return result;
+}
+
+/** Returns the last n Mondays, oldest first. */
+function getWeekStarts(n: number): Date[] {
+  const today = new Date();
+  const currentMon = isoMonday(today);
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(currentMon);
+    d.setDate(currentMon.getDate() - (n - 1 - i) * 7);
+    return d;
+  });
+}
+
+/**
+ * Build the weekly consistency series from per-day protein totals.
+ *
+ *   - "Success" week = ≥ WEEK_SUCCESS_THRESHOLD days hit the protein target.
+ *   - The current (in-progress) week is marked 'current' unless it has already
+ *     hit the threshold — in which case it's already 'success'.
+ *   - Days before the user's join date and days in the future are excluded
+ *     from the day-hit count (rather than counted as failures).
+ */
+function computeWeeklyStreak(
+  proteinByDate: Map<string, number>,
+  proteinTargetG: number,
+  joinDate: Date | null,
+): { weeks: WeekStat[]; current: number; longest: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const currentMon = isoMonday(today);
+
+  const weeks: WeekStat[] = getWeekStarts(WEEKS_TO_SHOW).map((weekStart) => {
+    let daysHit = 0;
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(weekStart);
+      day.setDate(weekStart.getDate() + i);
+      if (joinDate && day < joinDate) continue;
+      if (day > today) continue;
+      const protein = proteinByDate.get(isoDate(day)) ?? 0;
+      if (protein >= proteinTargetG) daysHit++;
+    }
+
+    const isCurrent = weekStart.getTime() === currentMon.getTime();
+    const success = daysHit >= WEEK_SUCCESS_THRESHOLD;
+    const status: WeekStatus = success
+      ? 'success'
+      : isCurrent
+        ? 'current'
+        : 'fail';
+
+    return { weekStart, daysHit, status };
+  });
+
+  // Current streak: walk backwards from the most recent week. The current
+  // week doesn't break the streak if it's still in progress — it just
+  // doesn't extend it either.
+  let current = 0;
+  for (let i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i].status === 'success') {
+      current++;
+    } else if (weeks[i].status === 'current') {
+      continue; // in-progress current week is neutral
+    } else {
+      break;
+    }
+  }
+
+  // Longest: longest consecutive 'success' run across the window.
+  let longest = 0;
+  let run = 0;
+  for (const w of weeks) {
+    if (w.status === 'success') {
+      run++;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+  }
+
+  return { weeks, current, longest };
+}
+
+// ---------------------------------------------------------------
+// Weekly dot — SVG so the half-filled "current" state renders crisply
+// ---------------------------------------------------------------
+function WeekDot({ status }: { status: WeekStatus }) {
+  const size = 14;
+  const r = 5;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  if (status === 'success') {
+    return (
+      <Svg width={size} height={size}>
+        <Circle cx={cx} cy={cy} r={r} fill={colors.amber} />
+      </Svg>
+    );
+  }
+  if (status === 'fail') {
+    return (
+      <Svg width={size} height={size}>
+        <Circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={colors.lineStrong}
+          strokeWidth={1.5}
+        />
+      </Svg>
+    );
+  }
+  // current — left half filled amber, outlined ring on top
+  return (
+    <Svg width={size} height={size}>
+      <Path
+        d={`M ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx} ${cy + r} Z`}
+        fill={colors.amber}
+      />
+      <Circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="none"
+        stroke={colors.amber}
+        strokeWidth={1.5}
+      />
+    </Svg>
+  );
 }
 
 function dayLabel(iso: string): { day: string; date: string } {
@@ -149,6 +307,20 @@ export default function History() {
     ).length;
   }, [aggByDate, allDates, proteinTargetG, daysQuery.data]);
 
+  // Weekly consistency over the last 8 weeks. We pass per-day protein totals
+  // and the user's join date — the helper handles ISO weeks, threshold, and
+  // half-filled-current-week status.
+  const weeklyStreak = useMemo(() => {
+    if (proteinTargetG <= 0 || !daysQuery.data) return null;
+    const proteinByDate = new Map<string, number>();
+    daysQuery.data.days.forEach((d) => proteinByDate.set(d.date, d.protein_g));
+    const joinDate = user?.created_at ? new Date(user.created_at) : null;
+    if (joinDate && !Number.isNaN(joinDate.getTime())) {
+      joinDate.setHours(0, 0, 0, 0);
+    }
+    return computeWeeklyStreak(proteinByDate, proteinTargetG, joinDate);
+  }, [daysQuery.data, proteinTargetG, user?.created_at]);
+
   useFocusEffect(
     useCallback(() => {
       qc.invalidateQueries({ queryKey: ['mealDays'] });
@@ -201,6 +373,33 @@ export default function History() {
             </Text>
           )}
         </View>
+
+        {weeklyStreak && (
+          <View style={styles.consistencyCard}>
+            <Text style={styles.eyebrow}>
+              LAST {weeklyStreak.weeks.length} WEEKS
+            </Text>
+            <View style={styles.dotsRow}>
+              {weeklyStreak.weeks.map((w) => (
+                <WeekDot
+                  key={w.weekStart.toISOString()}
+                  status={w.status}
+                />
+              ))}
+            </View>
+            <Text style={styles.consistencyLabel}>
+              {weeklyStreak.current === 0
+                ? `Aim for ${WEEK_SUCCESS_THRESHOLD}+ days hitting protein this week.`
+                : `${weeklyStreak.current} ${
+                    weeklyStreak.current === 1 ? 'week' : 'weeks'
+                  } running${
+                    weeklyStreak.longest > weeklyStreak.current
+                      ? ` · Best ${weeklyStreak.longest}`
+                      : ''
+                  }`}
+            </Text>
+          </View>
+        )}
 
         {daysQuery.isLoading ? (
           <View style={styles.loadingState}>
@@ -375,6 +574,27 @@ const styles = StyleSheet.create({
   loadingState: {
     paddingVertical: spacing.xxl,
     alignItems: 'center',
+  },
+
+  consistencyCard: {
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  consistencyLabel: {
+    ...typography.small,
+    color: colors.muted,
   },
 
   dayCard: {
