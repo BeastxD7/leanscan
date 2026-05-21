@@ -4,6 +4,7 @@
  *   POST   /v1/meals/photo        Upload photo → Gemini estimate (does NOT save). Debits 1 credit.
  *   POST   /v1/meals               Save a meal (after photo flow OR manual entry).
  *   GET    /v1/meals?date=YYYY-MM-DD  List meals for a date (default: today UTC).
+ *   GET    /v1/meals/days          Daily aggregates over ?since=&until= for History view.
  *   GET    /v1/meals/recent        Last 10 unique meals by name (for quick re-log).
  *   GET    /v1/meals/:id           Single meal detail.
  *   PATCH  /v1/meals/:id           Edit name / portion / macros.
@@ -324,6 +325,69 @@ mealsRouter.get(
         carbs_g: agg._sum.carbsG ? Number(agg._sum.carbsG) : 0,
         fat_g: agg._sum.fatG ? Number(agg._sum.fatG) : 0,
         meal_count: agg._count,
+      }),
+    );
+  }),
+);
+
+// =============================================================
+// GET /v1/meals/days — daily aggregates across a date range
+//
+// Used by the History view to render one card per day + compute streaks
+// without making 90 individual /v1/meals?date=X calls.
+//
+// Query: ?since=YYYY-MM-DD&until=YYYY-MM-DD  (until defaults to today)
+// Returns: { days: [{ date, protein_g, calories, carbs_g, fat_g, meal_count }, ...] }
+// Only days that have at least one meal are returned — caller fills in empty
+// days client-side. Sorted ascending by date.
+// =============================================================
+const daysQuerySchema = z.object({
+  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+mealsRouter.get(
+  '/days',
+  asyncHandler(async (req, res) => {
+    const userId = req.userId!;
+    const { since, until } = daysQuerySchema.parse(req.query);
+    const untilDate = until ?? new Date().toISOString().slice(0, 10);
+
+    // Hard cap at ~2 years of history per request to keep the response sane.
+    const sinceMs = Date.parse(`${since}T00:00:00.000Z`);
+    const untilMs = Date.parse(`${untilDate}T00:00:00.000Z`);
+    if (Number.isNaN(sinceMs) || Number.isNaN(untilMs) || untilMs < sinceMs) {
+      throw new HttpError(400, 'invalid_range', 'Invalid date range');
+    }
+    const spanDays = Math.round((untilMs - sinceMs) / 86_400_000);
+    if (spanDays > 730) {
+      throw new HttpError(400, 'range_too_large', 'Range cannot exceed 730 days');
+    }
+
+    const grouped = await prisma.meal.groupBy({
+      by: ['logDate'],
+      where: {
+        userId,
+        deletedAt: null,
+        logDate: { gte: new Date(`${since}T00:00:00.000Z`), lte: new Date(`${untilDate}T00:00:00.000Z`) },
+      },
+      _sum: { proteinG: true, calories: true, carbsG: true, fatG: true },
+      _count: true,
+      orderBy: { logDate: 'asc' },
+    });
+
+    res.json(
+      apiSuccess('OK', {
+        since,
+        until: untilDate,
+        days: grouped.map((g) => ({
+          date: g.logDate.toISOString().slice(0, 10),
+          protein_g: g._sum.proteinG ? Math.round(Number(g._sum.proteinG) * 10) / 10 : 0,
+          calories: g._sum.calories ?? 0,
+          carbs_g: g._sum.carbsG ? Math.round(Number(g._sum.carbsG) * 10) / 10 : 0,
+          fat_g: g._sum.fatG ? Math.round(Number(g._sum.fatG) * 10) / 10 : 0,
+          meal_count: g._count,
+        })),
       }),
     );
   }),

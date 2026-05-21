@@ -1,15 +1,17 @@
 /**
- * History — last 14 days at a glance.
+ * History — paginated list of past days.
  *
- * One card per day: weekday, date, protein total, calorie total, meal count.
- * A small amber dot shows when the day's protein target was hit.
- * Tap a card to expand and see that day's meals inline.
+ *   - Default view: last 7 days
+ *   - "Show more" button at bottom → loads 10 more days per tap
+ *   - Filter icon (top right) → opens a native date picker; selecting a
+ *     date jumps directly to that day's detail (bypasses pagination)
+ *   - Tap a day card → navigates to /(app)/history/[date] (day detail
+ *     screen with the meals list)
  *
  * Calm-tracker tone, per the strategy doc:
  *   - No streak counters
- *   - No badges or trophies
- *   - No "you broke your streak" copy
- *   - Just observation — "5/7 days hit protein this week"
+ *   - No badges / shame mechanics
+ *   - Quiet weekly observation only ("X/7 days hit protein this week")
  */
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -20,20 +22,25 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 
 import { colors, typography, spacing, radius, fontFamily } from '../../src/theme';
 import { useAuthStore } from '../../src/state/auth';
 import { api } from '../../src/lib/api';
 
-const DAYS_TO_SHOW = 14;
+const INITIAL_VISIBLE = 7;
+const PAGE_SIZE = 10;
+const FETCH_WINDOW_DAYS = 90; // pre-fetch this many days of aggregates
 
 function isoDate(d: Date): string {
-  // Local-timezone YYYY-MM-DD, matches what the API expects.
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -65,42 +72,59 @@ export default function History() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
-
   const proteinTargetG = user?.protein_target_g ?? 0;
-  const dates = useMemo(() => getLastNDates(DAYS_TO_SHOW), []);
 
-  const dayQueries = useQueries({
-    queries: dates.map((date) => ({
-      queryKey: ['meals', date],
-      queryFn: () => api.listMeals(date),
-      staleTime: 60_000,
-    })),
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Fetch the last 90 days of aggregates in one call. We then render
+  // visibleCount of them, paginated by PAGE_SIZE on demand.
+  const allDates = useMemo(() => getLastNDates(FETCH_WINDOW_DAYS), []);
+  const earliestDate = allDates[allDates.length - 1];
+
+  const daysQuery = useQuery({
+    queryKey: ['mealDays', earliestDate],
+    queryFn: () => api.listMealDays(earliestDate),
+    staleTime: 60_000,
   });
 
-  // Quiet observational stat: "5/7 days hit protein this week" — not a streak.
+  // Build a date → aggregate lookup so we can render zero-meal days.
+  const aggByDate = useMemo(() => {
+    const m = new Map<string, { protein_g: number; calories: number; meal_count: number }>();
+    daysQuery.data?.days.forEach((d) => {
+      m.set(d.date, {
+        protein_g: d.protein_g,
+        calories: d.calories,
+        meal_count: d.meal_count,
+      });
+    });
+    return m;
+  }, [daysQuery.data]);
+
+  // Quiet weekly stat: "5/7 days hit protein this week" — observation only.
   const last7DaysHit = useMemo(() => {
-    if (proteinTargetG <= 0) return null;
-    const first7 = dayQueries.slice(0, 7);
-    if (first7.some((q) => q.isLoading)) return null;
-    const hit = first7.filter(
-      (q) => (q.data?.totals.protein_g ?? 0) >= proteinTargetG,
+    if (proteinTargetG <= 0 || !daysQuery.data) return null;
+    const first7 = allDates.slice(0, 7);
+    return first7.filter(
+      (date) => (aggByDate.get(date)?.protein_g ?? 0) >= proteinTargetG,
     ).length;
-    return hit;
-  }, [dayQueries, proteinTargetG]);
+  }, [aggByDate, allDates, proteinTargetG, daysQuery.data]);
 
   useFocusEffect(
     useCallback(() => {
-      // Re-fetch on focus so meals logged elsewhere show up.
-      qc.invalidateQueries({ queryKey: ['meals'] });
+      qc.invalidateQueries({ queryKey: ['mealDays'] });
     }, [qc]),
   );
 
-  const isInitialLoading = dayQueries.every((q) => q.isLoading);
-  const isRefreshing = dayQueries.some((q) => q.isFetching && !q.isLoading);
+  const visibleDates = allDates.slice(0, visibleCount);
+  const canShowMore = visibleCount < allDates.length;
 
-  function refetchAll() {
-    dayQueries.forEach((q) => q.refetch());
+  function onPickDate(_e: DateTimePickerEvent, selected?: Date) {
+    if (Platform.OS !== 'ios') setPickerOpen(false);
+    if (selected) {
+      const date = isoDate(selected);
+      router.push(`/(app)/history/${date}`);
+    }
   }
 
   return (
@@ -111,21 +135,27 @@ export default function History() {
           <Feather name="arrow-left" size={22} color={colors.forest} />
         </Pressable>
         <Text style={styles.headerTitle}>History</Text>
-        <View style={{ width: 22 }} />
+        <Pressable
+          onPress={() => setPickerOpen(true)}
+          hitSlop={12}
+          style={styles.filterBtn}
+        >
+          <Feather name="calendar" size={20} color={colors.forest} />
+        </Pressable>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
           <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refetchAll}
+            refreshing={daysQuery.isFetching && !daysQuery.isLoading}
+            onRefresh={() => daysQuery.refetch()}
             tintColor={colors.forest}
           />
         }
       >
         <View style={styles.intro}>
-          <Text style={styles.eyebrow}>LAST 14 DAYS</Text>
+          <Text style={styles.eyebrow}>RECENT</Text>
           {last7DaysHit !== null && (
             <Text style={styles.observation}>
               {last7DaysHit}/7 days hit your protein target this week
@@ -133,29 +163,28 @@ export default function History() {
           )}
         </View>
 
-        {isInitialLoading ? (
+        {daysQuery.isLoading ? (
           <View style={styles.loadingState}>
             <ActivityIndicator color={colors.forest} />
           </View>
         ) : (
-          dates.map((date, i) => {
-            const q = dayQueries[i];
-            const data = q.data;
-            const label = dayLabel(date);
-            const expanded = expandedDate === date;
-            const protein = data?.totals.protein_g ?? 0;
-            const calories = data?.totals.calories ?? 0;
-            const mealCount = data?.meals.length ?? 0;
-            const hitTarget = proteinTargetG > 0 && protein >= proteinTargetG;
-            const isEmpty = !q.isLoading && mealCount === 0;
+          <>
+            {visibleDates.map((date) => {
+              const agg = aggByDate.get(date);
+              const label = dayLabel(date);
+              const protein = agg?.protein_g ?? 0;
+              const calories = agg?.calories ?? 0;
+              const mealCount = agg?.meal_count ?? 0;
+              const hitTarget =
+                proteinTargetG > 0 && protein >= proteinTargetG;
+              const isEmpty = mealCount === 0;
 
-            return (
-              <Pressable
-                key={date}
-                style={[styles.dayCard, expanded && styles.dayCardExpanded]}
-                onPress={() => setExpandedDate(expanded ? null : date)}
-              >
-                <View style={styles.dayHeader}>
+              return (
+                <Pressable
+                  key={date}
+                  style={styles.dayCard}
+                  onPress={() => router.push(`/(app)/history/${date}`)}
+                >
                   <View style={styles.dayLabelCol}>
                     <Text style={styles.dayName}>{label.day}</Text>
                     {!!label.date && (
@@ -164,9 +193,7 @@ export default function History() {
                   </View>
 
                   <View style={styles.daySummary}>
-                    {q.isLoading ? (
-                      <ActivityIndicator size="small" color={colors.muted} />
-                    ) : isEmpty ? (
+                    {isEmpty ? (
                       <Text style={styles.emptyDay}>No meals logged</Text>
                     ) : (
                       <>
@@ -186,52 +213,76 @@ export default function History() {
                   </View>
 
                   <Feather
-                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                    name="chevron-right"
                     size={18}
                     color={colors.muted}
                     style={styles.chevron}
                   />
-                </View>
+                </Pressable>
+              );
+            })}
 
-                {expanded && data && data.meals.length > 0 && (
-                  <View style={styles.expandedBody}>
-                    {data.meals.map((m) => (
-                      <Pressable
-                        key={m.id}
-                        style={styles.mealRow}
-                        onPress={() => router.push(`/(app)/meal/${m.id}`)}
-                      >
-                        <Text style={styles.mealTime}>
-                          {new Date(m.logged_at).toLocaleTimeString([], {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                          })}
-                        </Text>
-                        <Text style={styles.mealName} numberOfLines={1}>
-                          {m.meal_name}
-                        </Text>
-                        <Text style={styles.mealProtein}>
-                          {Math.round(m.protein_g)}g
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-
-                {expanded && isEmpty && (
-                  <View style={styles.expandedEmpty}>
-                    <Text style={styles.expandedEmptyText}>
-                      Nothing logged on this day.
-                    </Text>
-                  </View>
-                )}
+            {canShowMore && (
+              <Pressable
+                style={styles.showMoreBtn}
+                onPress={() =>
+                  setVisibleCount((c) =>
+                    Math.min(c + PAGE_SIZE, allDates.length),
+                  )
+                }
+              >
+                <Text style={styles.showMoreText}>
+                  Show {Math.min(PAGE_SIZE, allDates.length - visibleCount)} more
+                </Text>
               </Pressable>
-            );
-          })
+            )}
+
+            {!canShowMore && (
+              <Text style={styles.endNote}>
+                Showing the past {allDates.length} days. Use the calendar to
+                jump to a specific date.
+              </Text>
+            )}
+          </>
         )}
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
+
+      {/* Date picker — Android shows inline dialog, iOS uses spinner overlay */}
+      {pickerOpen && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={new Date()}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={onPickDate}
+        />
+      )}
+      {pickerOpen && Platform.OS === 'ios' && (
+        <View style={styles.iosPickerOverlay} pointerEvents="box-none">
+          <Pressable
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            onPress={() => setPickerOpen(false)}
+          />
+          <View style={styles.iosPickerSheet}>
+            <View style={styles.iosPickerHeader}>
+              <Text style={styles.iosPickerTitle}>Jump to date</Text>
+              <Pressable onPress={() => setPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.iosPickerDone}>Done</Text>
+              </Pressable>
+            </View>
+            <DateTimePicker
+              value={new Date()}
+              mode="date"
+              display="spinner"
+              maximumDate={new Date()}
+              onChange={onPickDate}
+              themeVariant="light"
+            />
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -252,6 +303,9 @@ const styles = StyleSheet.create({
     color: colors.forest,
     fontFamily: fontFamily.serifBold,
     fontSize: 18,
+  },
+  filterBtn: {
+    padding: 2,
   },
   scroll: {
     paddingHorizontal: spacing.lg,
@@ -276,25 +330,17 @@ const styles = StyleSheet.create({
   },
 
   dayCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.paper,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radius.lg,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  dayCardExpanded: {
-    borderColor: colors.lineStrong,
-  },
-  dayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
   },
-  dayLabelCol: {
-    width: 110,
-  },
+  dayLabelCol: { width: 110 },
   dayName: {
     ...typography.bodyMedium,
     color: colors.forest,
@@ -310,10 +356,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'flex-end',
   },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  statRow: { flexDirection: 'row', alignItems: 'center' },
   statValue: {
     ...typography.bodyMedium,
     color: colors.forest,
@@ -342,45 +385,58 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontStyle: 'italic',
   },
-  chevron: {
-    marginLeft: spacing.sm,
+  chevron: { marginLeft: spacing.sm },
+
+  showMoreBtn: {
+    backgroundColor: colors.forest,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  showMoreText: {
+    ...typography.bodyMedium,
+    color: colors.cream,
+    fontFamily: fontFamily.sansSemibold,
+  },
+  endNote: {
+    ...typography.small,
+    color: colors.muted,
+    textAlign: 'center',
+    marginTop: spacing.md,
+    fontStyle: 'italic',
   },
 
-  expandedBody: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    paddingTop: spacing.sm,
+  iosPickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
   },
-  expandedEmpty: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    paddingTop: spacing.xs,
+  iosPickerSheet: {
+    backgroundColor: colors.cream,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingBottom: spacing.lg,
   },
-  expandedEmptyText: {
-    ...typography.small,
-    color: colors.muted,
-  },
-  mealRow: {
+  iosPickerHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
   },
-  mealTime: {
-    ...typography.small,
-    color: colors.muted,
-    width: 64,
-  },
-  mealName: {
-    ...typography.body,
-    color: colors.charcoal,
-    flex: 1,
-    marginRight: spacing.sm,
-  },
-  mealProtein: {
+  iosPickerTitle: {
     ...typography.bodyMedium,
     color: colors.forest,
-    fontFamily: fontFamily.sansSemibold,
+  },
+  iosPickerDone: {
+    ...typography.bodyMedium,
+    color: colors.amber,
   },
 });

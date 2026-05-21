@@ -302,6 +302,30 @@ export const api = {
       meals: MealRecord[];
     }>(`/v1/meals${date ? `?date=${date}` : ''}`, { silent: true }),
 
+  /**
+   * Daily aggregates over a range — one row per day with meals, used by the
+   * History view for paginated day cards. Only days WITH meals are returned;
+   * the caller is responsible for filling in empty days in the date list.
+   */
+  listMealDays: (since: string, until?: string) =>
+    request<{
+      since: string;
+      until: string;
+      days: Array<{
+        date: string;
+        protein_g: number;
+        calories: number;
+        carbs_g: number;
+        fat_g: number;
+        meal_count: number;
+      }>;
+    }>(
+      `/v1/meals/days?since=${encodeURIComponent(since)}${
+        until ? `&until=${encodeURIComponent(until)}` : ''
+      }`,
+      { silent: true },
+    ),
+
   saveMeal: (input: {
     meal_name: string;
     protein_g: number;
