@@ -24,6 +24,7 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 
@@ -132,7 +133,26 @@ export default function Scan() {
           });
 
     if (result.canceled || !result.assets?.[0]) return;
-    const uri = result.assets[0].uri;
+    const rawUri = result.assets[0].uri;
+
+    // Re-encode to JPEG. iOS 11+ writes HEIC by default and the server's
+    // Sharp/libvips can't decode HEIC (Sharp doesn't bundle HEVC for
+    // licensing reasons). ImageManipulator uses native iOS image APIs
+    // which decode HEIC fine, then re-encodes as JPEG for upload.
+    // Android already returns JPEG so this is a fast no-op there.
+    let uri = rawUri;
+    try {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        rawUri,
+        [], // no transforms — just re-encode
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      uri = manipulated.uri;
+    } catch {
+      // If conversion fails for any reason, fall back to the raw URI.
+      // The server will return a friendly 415 if it still can't decode.
+    }
+
     setLocalUri(uri);
     setPhase('analyzing');
 
@@ -182,6 +202,8 @@ export default function Scan() {
       if (err instanceof ApiError) {
         if (err.code === 'out_of_credits') {
           toast.error("You're out of credits. Log this meal manually for free.");
+        } else if (err.code === 'unsupported_image_format') {
+          toast.error("Couldn't read this photo. Try taking it again or use a different one.");
         } else {
           toast.error(err.message);
         }

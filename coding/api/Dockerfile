@@ -1,13 +1,22 @@
 # Multi-stage Dockerfile for LeanScan API.
-# Same image runs locally (via docker-compose) and in production (DigitalOcean).
+# Same image runs locally (via docker-compose) and in production.
+#
+# Base: node:24.14.0-bookworm-slim (Debian, not Alpine).
+#
+# Why Debian instead of Alpine: Sharp's prebuilt libvips for musl (Alpine)
+# does NOT include HEIC support. iOS photos default to HEIC since iOS 11,
+# so every iPhone meal photo upload 500'd. Debian's prebuilt libvips
+# bundles libheif and "just works" for HEIC, JPEG, PNG, WebP, AVIF.
+# The image is ~50MB larger than Alpine but it's the right trade.
 
 # ----- Build stage -----
-FROM node:22-alpine AS build
+FROM node:24.14.0-bookworm-slim AS build
 WORKDIR /app
 
 # openssl is required by Prisma's query engine.
-# (bcryptjs is pure JS so no python/compiler needed anymore.)
-RUN apk add --no-cache openssl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
 # Skip the lockfile inside the container — npm chokes on the dev-only
@@ -23,18 +32,16 @@ COPY src ./src
 RUN npm run build
 
 # ----- Production stage -----
-FROM node:22-alpine
+FROM node:24.14.0-bookworm-slim
 WORKDIR /app
 
-# Prisma needs openssl at runtime.
-RUN apk add --no-cache openssl wget
-
-# Puppeteer / Chromium will be added in Phase 4 (weekly PDF). Sketch below.
-# RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
-# ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Prisma needs openssl at runtime. wget for the healthcheck.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl ca-certificates wget && \
+    rm -rf /var/lib/apt/lists/*
 
 # Non-root user
-RUN addgroup -S app && adduser -S app -G app
+RUN groupadd --system app && useradd --system --gid app --shell /bin/bash app
 
 COPY package.json ./
 # Same fresh-resolve approach as the build stage.
