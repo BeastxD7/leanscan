@@ -49,7 +49,8 @@ export class BedrockProvider implements AIVisionProvider {
     // Anthropic Messages API on Bedrock (works with all Claude 3.x models).
     const body = {
       anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 800,
+      // Bumped from 800 for multi-item output (up to 8 items × ~80 tokens each).
+      max_tokens: 1500,
       temperature: 0.2,
       system: SYSTEM_PROMPT,
       messages: [

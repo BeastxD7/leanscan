@@ -92,9 +92,9 @@ enum Sex {
 // Users — auth + profile + credit state in one row
 // =============================================================
 model User {
-  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String  @unique
-  passwordHash String  @map("password_hash")
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String @unique
+  passwordHash String @map("password_hash")
 
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz()
 
@@ -102,21 +102,21 @@ model User {
   status UserStatus @default(active)
 
   // Profile
-  username              String?            @unique
-  firstName             String?            @map("first_name")
-  lastName              String?            @map("last_name")
-  dateOfBirth           DateTime?          @map("date_of_birth") @db.Date
+  username              String?           @unique
+  firstName             String?           @map("first_name")
+  lastName              String?           @map("last_name")
+  dateOfBirth           DateTime?         @map("date_of_birth") @db.Date
   sex                   Sex?
-  displayName           String?            @map("display_name")
+  displayName           String?           @map("display_name")
   goal                  Goal?
-  heightCm              Decimal?           @map("height_cm") @db.Decimal(5, 2)
-  weightKg              Decimal?           @map("weight_kg") @db.Decimal(5, 2)
-  goalWeightKg          Decimal?           @map("goal_weight_kg") @db.Decimal(5, 2)
-  activityLevel         ActivityLevel?     @map("activity_level")
-  proteinTargetG        Int?               @map("protein_target_g")
-  unitsMetric           Boolean            @default(true) @map("units_metric")
-  dashboardPriority     DashboardPriority  @default(protein) @map("dashboard_priority")
-  onboardingCompletedAt DateTime?          @map("onboarding_completed_at") @db.Timestamptz()
+  heightCm              Decimal?          @map("height_cm") @db.Decimal(5, 2)
+  weightKg              Decimal?          @map("weight_kg") @db.Decimal(5, 2)
+  goalWeightKg          Decimal?          @map("goal_weight_kg") @db.Decimal(5, 2)
+  activityLevel         ActivityLevel?    @map("activity_level")
+  proteinTargetG        Int?              @map("protein_target_g")
+  unitsMetric           Boolean           @default(true) @map("units_metric")
+  dashboardPriority     DashboardPriority @default(protein) @map("dashboard_priority")
+  onboardingCompletedAt DateTime?         @map("onboarding_completed_at") @db.Timestamptz()
 
   // Optional medication
   medication          Medication @default(none)
@@ -166,7 +166,9 @@ model Meal {
   // Photo stored on disk via storage service; this is the relative path.
   photoPath String? @map("photo_path")
 
-  // Macros — protein is the headline; rest are secondary.
+  // Denormalized totals — sum of items[].* — kept on the row for fast
+  // dashboard queries that don't need to JOIN. Recomputed in the service
+  // layer whenever items change.
   proteinG Decimal  @default(0) @map("protein_g") @db.Decimal(6, 2)
   calories Int?
   carbsG   Decimal? @map("carbs_g") @db.Decimal(6, 2)
@@ -181,11 +183,41 @@ model Meal {
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz()
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items MealItem[]
 
   @@index([userId, loggedAt(sort: Desc)])
   @@index([userId, logDate])
   @@map("meals")
+}
+
+// Each Meal is composed of one or more MealItems. Multi-item photos
+// (e.g. "burger + fries + Coke") produce one MealItem per detected item.
+// Single-item meals still get exactly one MealItem.
+//
+// Meal.protein_g, .calories, etc. are the denormalized sum of these
+// rows — recompute them whenever items change.
+model MealItem {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mealId String @map("meal_id") @db.Uuid
+
+  position         Int     @default(0)
+  itemName         String  @map("item_name")
+  estimatedPortion String? @map("estimated_portion")
+
+  proteinG Decimal  @default(0) @map("protein_g") @db.Decimal(6, 2)
+  calories Int?
+  carbsG   Decimal? @map("carbs_g") @db.Decimal(6, 2)
+  fatG     Decimal? @map("fat_g") @db.Decimal(6, 2)
+
+  confidence   MealConfidence?
+  editedByUser Boolean         @default(false) @map("edited_by_user")
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+
+  @@index([mealId, position])
+  @@map("meal_items")
 }
 
 // =============================================================

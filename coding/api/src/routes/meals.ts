@@ -55,24 +55,55 @@ mealsRouter.use(requireAuth);
 // =============================================================
 // Schemas
 // =============================================================
-const saveMealSchema = z.object({
-  meal_name: z.string().min(1).max(120),
+const mealItemInputSchema = z.object({
+  item_name: z.string().min(1).max(120),
+  estimated_portion: z.string().max(120).optional(),
   protein_g: z.number().min(0).max(500),
   calories: z.number().int().min(0).max(5000).optional(),
   carbs_g: z.number().min(0).max(500).optional(),
   fat_g: z.number().min(0).max(500).optional(),
+  confidence: z.enum(['low', 'medium', 'high']).optional(),
+});
+
+// Accepts BOTH new multi-item shape and legacy single-item shape.
+// If `items` is present, it wins. Otherwise the top-level macros are
+// promoted into a single MealItem, preserving compat for older clients.
+const saveMealSchema = z.object({
+  meal_name: z.string().min(1).max(120),
+
+  // New multi-item path
+  items: z.array(mealItemInputSchema).min(1).max(12).optional(),
+
+  // Legacy single-item path (kept for backward compat — one release cycle)
+  protein_g: z.number().min(0).max(500).optional(),
+  calories: z.number().int().min(0).max(5000).optional(),
+  carbs_g: z.number().min(0).max(500).optional(),
+  fat_g: z.number().min(0).max(500).optional(),
   estimated_portion: z.string().max(120).optional(),
+  confidence: z.enum(['low', 'medium', 'high']).optional(),
+
   source: z.enum(['photo', 'manual', 'quick_add']).default('manual'),
   photo_path: z.string().max(300).optional(),
-  confidence: z.enum(['low', 'medium', 'high']).optional(),
   ai_notes: z.string().max(500).optional(),
   raw_ai_response: z.unknown().optional(),
   edited_by_user: z.boolean().optional(),
   logged_at: z.string().datetime().optional(),
-});
+}).refine(
+  (data) => data.items !== undefined || data.protein_g !== undefined,
+  { message: 'Provide either `items` (multi-item) or top-level `protein_g` (legacy single-item)' },
+);
 
 const patchMealSchema = z.object({
+  // Meal-level edits
   meal_name: z.string().min(1).max(120).optional(),
+  ai_notes: z.string().max(500).optional(),
+
+  // Items replacement — if present, REPLACES the entire items list for
+  // this meal. Totals are recomputed.
+  items: z.array(mealItemInputSchema).min(1).max(12).optional(),
+
+  // Legacy macro patches — apply to the single item if exactly one exists.
+  // For multi-item meals these are ignored (use `items` instead).
   protein_g: z.number().min(0).max(500).optional(),
   calories: z.number().int().min(0).max(5000).optional(),
   carbs_g: z.number().min(0).max(500).optional(),
@@ -94,6 +125,35 @@ const idParamSchema = z.object({
 // =============================================================
 // Helpers
 // =============================================================
+
+type MealItemRow = {
+  id: string;
+  position: number;
+  itemName: string;
+  estimatedPortion: string | null;
+  proteinG: { toString(): string };
+  calories: number | null;
+  carbsG: { toString(): string } | null;
+  fatG: { toString(): string } | null;
+  confidence: string | null;
+  editedByUser: boolean;
+};
+
+function serializeMealItem(it: MealItemRow) {
+  return {
+    id: it.id,
+    position: it.position,
+    item_name: it.itemName,
+    estimated_portion: it.estimatedPortion,
+    protein_g: Number(it.proteinG),
+    calories: it.calories,
+    carbs_g: it.carbsG ? Number(it.carbsG) : null,
+    fat_g: it.fatG ? Number(it.fatG) : null,
+    confidence: it.confidence,
+    edited_by_user: it.editedByUser,
+  };
+}
+
 function serializeMeal(m: {
   id: string;
   loggedAt: Date;
@@ -110,6 +170,7 @@ function serializeMeal(m: {
   aiNotes: string | null;
   editedByUser: boolean;
   createdAt: Date;
+  items?: MealItemRow[];
 }) {
   return {
     id: m.id,
@@ -118,6 +179,7 @@ function serializeMeal(m: {
     meal_name: m.mealName,
     estimated_portion: m.estimatedPortion,
     photo_path: m.photoPath,
+    // Denormalized totals (sum across items) — kept for legacy clients.
     protein_g: Number(m.proteinG),
     calories: m.calories,
     carbs_g: m.carbsG ? Number(m.carbsG) : null,
@@ -127,8 +189,27 @@ function serializeMeal(m: {
     ai_notes: m.aiNotes,
     edited_by_user: m.editedByUser,
     created_at: m.createdAt.toISOString(),
+    // Multi-item breakdown. Always at least one item after the
+    // add_meal_items migration. Sorted by position.
+    items: (m.items ?? [])
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map(serializeMealItem),
   };
 }
+
+const MEAL_ITEM_SELECT = {
+  id: true,
+  position: true,
+  itemName: true,
+  estimatedPortion: true,
+  proteinG: true,
+  calories: true,
+  carbsG: true,
+  fatG: true,
+  confidence: true,
+  editedByUser: true,
+} as const;
 
 const MEAL_SELECT = {
   id: true,
@@ -146,7 +227,82 @@ const MEAL_SELECT = {
   aiNotes: true,
   editedByUser: true,
   createdAt: true,
+  items: {
+    select: MEAL_ITEM_SELECT,
+    orderBy: { position: 'asc' },
+  },
 } as const;
+
+/**
+ * Compute denormalized totals from a list of items. Lowest confidence
+ * across items becomes the meal-level confidence.
+ */
+function aggregateItems(
+  items: Array<{ protein_g: number; calories?: number; carbs_g?: number; fat_g?: number; confidence?: 'low' | 'medium' | 'high' }>,
+) {
+  const totals = items.reduce<{
+    protein_g: number;
+    calories: number;
+    carbs_g: number;
+    fat_g: number;
+  }>(
+    (acc, it) => {
+      acc.protein_g += it.protein_g;
+      acc.calories += it.calories ?? 0;
+      acc.carbs_g += it.carbs_g ?? 0;
+      acc.fat_g += it.fat_g ?? 0;
+      return acc;
+    },
+    { protein_g: 0, calories: 0, carbs_g: 0, fat_g: 0 },
+  );
+  const rank: Record<'low' | 'medium' | 'high', number> = { low: 0, medium: 1, high: 2 };
+  let confidence: 'low' | 'medium' | 'high' | null = null;
+  for (const it of items) {
+    if (!it.confidence) continue;
+    if (confidence === null || rank[it.confidence] < rank[confidence]) {
+      confidence = it.confidence;
+    }
+  }
+  return { ...totals, confidence };
+}
+
+/**
+ * Normalize the input into a list of items, regardless of whether the
+ * client sent multi-item (`items: [...]`) or legacy single-item shape.
+ * Always returns at least one item.
+ */
+function inputToItems(input: {
+  meal_name: string;
+  items?: Array<{
+    item_name: string;
+    estimated_portion?: string;
+    protein_g: number;
+    calories?: number;
+    carbs_g?: number;
+    fat_g?: number;
+    confidence?: 'low' | 'medium' | 'high';
+  }>;
+  estimated_portion?: string;
+  protein_g?: number;
+  calories?: number;
+  carbs_g?: number;
+  fat_g?: number;
+  confidence?: 'low' | 'medium' | 'high';
+}) {
+  if (input.items && input.items.length > 0) return input.items;
+  // Legacy: promote top-level macros into a single item.
+  return [
+    {
+      item_name: input.meal_name,
+      estimated_portion: input.estimated_portion,
+      protein_g: input.protein_g ?? 0,
+      calories: input.calories,
+      carbs_g: input.carbs_g,
+      fat_g: input.fat_g,
+      confidence: input.confidence,
+    },
+  ];
+}
 
 // =============================================================
 // POST /v1/meals/photo — analyze (does NOT save)
@@ -228,6 +384,11 @@ mealsRouter.post(
       Date.UTC(loggedAt.getUTCFullYear(), loggedAt.getUTCMonth(), loggedAt.getUTCDate()),
     );
 
+    // Normalize legacy single-item shape into items[]
+    const items = inputToItems(input);
+    const totals = aggregateItems(items);
+
+    // Create the meal + child MealItems atomically.
     const meal = await prisma.meal.create({
       data: {
         userId,
@@ -236,15 +397,29 @@ mealsRouter.post(
         mealName: input.meal_name,
         estimatedPortion: input.estimated_portion,
         photoPath: input.photo_path,
-        proteinG: input.protein_g,
-        calories: input.calories,
-        carbsG: input.carbs_g,
-        fatG: input.fat_g,
+        // Denormalized totals — sum across items
+        proteinG: totals.protein_g,
+        calories: totals.calories,
+        carbsG: totals.carbs_g,
+        fatG: totals.fat_g,
         source: input.source,
-        confidence: input.confidence,
+        confidence: totals.confidence ?? input.confidence ?? null,
         aiNotes: input.ai_notes,
         rawAiResponse: input.raw_ai_response as never,
         editedByUser: input.edited_by_user ?? false,
+        items: {
+          create: items.map((it, i) => ({
+            position: i,
+            itemName: it.item_name,
+            estimatedPortion: it.estimated_portion,
+            proteinG: it.protein_g,
+            calories: it.calories,
+            carbsG: it.carbs_g,
+            fatG: it.fat_g,
+            confidence: it.confidence,
+            editedByUser: input.edited_by_user ?? false,
+          })),
+        },
       },
       select: MEAL_SELECT,
     });
@@ -470,22 +645,97 @@ mealsRouter.patch(
 
     const existing = await prisma.meal.findFirst({
       where: { id, userId, deletedAt: null },
-      select: { id: true },
+      select: {
+        id: true,
+        items: { select: { id: true, position: true, itemName: true, estimatedPortion: true, proteinG: true, calories: true, carbsG: true, fatG: true, confidence: true } },
+      },
     });
     if (!existing) throw new HttpError(404, 'meal_not_found', 'Meal not found.');
 
-    const updates: Record<string, unknown> = { editedByUser: true };
-    if (input.meal_name !== undefined) updates.mealName = input.meal_name;
-    if (input.protein_g !== undefined) updates.proteinG = input.protein_g;
-    if (input.calories !== undefined) updates.calories = input.calories;
-    if (input.carbs_g !== undefined) updates.carbsG = input.carbs_g;
-    if (input.fat_g !== undefined) updates.fatG = input.fat_g;
-    if (input.estimated_portion !== undefined) updates.estimatedPortion = input.estimated_portion;
+    const meal = await prisma.$transaction(async (tx) => {
+      // Items replacement path — wipes existing items and recreates from input.
+      if (input.items) {
+        const totals = aggregateItems(input.items);
+        await tx.mealItem.deleteMany({ where: { mealId: id } });
+        await tx.mealItem.createMany({
+          data: input.items.map((it, i) => ({
+            mealId: id,
+            position: i,
+            itemName: it.item_name,
+            estimatedPortion: it.estimated_portion,
+            proteinG: it.protein_g,
+            calories: it.calories,
+            carbsG: it.carbs_g,
+            fatG: it.fat_g,
+            confidence: it.confidence,
+            editedByUser: true,
+          })),
+        });
 
-    const meal = await prisma.meal.update({
-      where: { id },
-      data: updates,
-      select: MEAL_SELECT,
+        const updates: Record<string, unknown> = {
+          editedByUser: true,
+          proteinG: totals.protein_g,
+          calories: totals.calories,
+          carbsG: totals.carbs_g,
+          fatG: totals.fat_g,
+          confidence: totals.confidence,
+        };
+        if (input.meal_name !== undefined) updates.mealName = input.meal_name;
+        if (input.ai_notes !== undefined) updates.aiNotes = input.ai_notes;
+        return tx.meal.update({ where: { id }, data: updates, select: MEAL_SELECT });
+      }
+
+      // Legacy macro patch — only meaningful when meal has exactly one item.
+      // We update that item AND the denormalized totals on Meal.
+      const hasLegacyMacros =
+        input.protein_g !== undefined ||
+        input.calories !== undefined ||
+        input.carbs_g !== undefined ||
+        input.fat_g !== undefined ||
+        input.estimated_portion !== undefined;
+
+      if (hasLegacyMacros && existing.items.length === 1) {
+        const it = existing.items[0];
+        const patched = {
+          item_name: it.itemName,
+          estimated_portion:
+            input.estimated_portion !== undefined ? input.estimated_portion : it.estimatedPortion ?? undefined,
+          protein_g: input.protein_g !== undefined ? input.protein_g : Number(it.proteinG),
+          calories: input.calories !== undefined ? input.calories : it.calories ?? undefined,
+          carbs_g: input.carbs_g !== undefined ? input.carbs_g : it.carbsG ? Number(it.carbsG) : undefined,
+          fat_g: input.fat_g !== undefined ? input.fat_g : it.fatG ? Number(it.fatG) : undefined,
+          confidence: (it.confidence as 'low' | 'medium' | 'high' | null) ?? undefined,
+        };
+        await tx.mealItem.update({
+          where: { id: it.id },
+          data: {
+            estimatedPortion: patched.estimated_portion,
+            proteinG: patched.protein_g,
+            calories: patched.calories,
+            carbsG: patched.carbs_g,
+            fatG: patched.fat_g,
+            editedByUser: true,
+          },
+        });
+        const totals = aggregateItems([patched]);
+        const updates: Record<string, unknown> = {
+          editedByUser: true,
+          proteinG: totals.protein_g,
+          calories: totals.calories,
+          carbsG: totals.carbs_g,
+          fatG: totals.fat_g,
+        };
+        if (input.meal_name !== undefined) updates.mealName = input.meal_name;
+        if (input.estimated_portion !== undefined) updates.estimatedPortion = input.estimated_portion;
+        if (input.ai_notes !== undefined) updates.aiNotes = input.ai_notes;
+        return tx.meal.update({ where: { id }, data: updates, select: MEAL_SELECT });
+      }
+
+      // Meal-level fields only (name / notes), no macro changes.
+      const updates: Record<string, unknown> = { editedByUser: true };
+      if (input.meal_name !== undefined) updates.mealName = input.meal_name;
+      if (input.ai_notes !== undefined) updates.aiNotes = input.ai_notes;
+      return tx.meal.update({ where: { id }, data: updates, select: MEAL_SELECT });
     });
 
     res.json(apiSuccess('Meal updated.', { meal: serializeMeal(meal) }));

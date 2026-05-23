@@ -40,7 +40,8 @@ export class GeminiProvider implements AIVisionProvider {
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.2,
-        maxOutputTokens: 800,
+        // Bumped from 800 for multi-item output (up to 8 items × ~80 tokens each).
+        maxOutputTokens: 1500,
         thinkingConfig: { thinkingBudget: 0 },
       },
     };

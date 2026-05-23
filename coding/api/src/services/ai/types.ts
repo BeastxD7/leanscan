@@ -1,18 +1,46 @@
 /**
  * Common types for any AI vision provider.
  * Every provider in this folder implements `AIVisionProvider`.
+ *
+ * The system prompt below is "Variant B" — the chain-of-thought
+ * enumeration prompt that won the multi-item eval (89.2% vs 86% / 88.4%
+ * for variants A and C). See `multi-item/PROMPTS.md` for the design
+ * reasoning and `multi-item/evaluate.ts` for the harness used to pick
+ * the winner.
  */
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
-export interface MealEstimate {
-  meal_name: string;
+/**
+ * One detected item within a meal. Multi-item photos produce multiple
+ * MealItemEstimates; single-item photos produce one.
+ */
+export interface MealItemEstimate {
+  item_name: string;
   estimated_portion?: string;
   protein_g: number;
   calories: number;
   carbs_g: number;
   fat_g: number;
   confidence: ConfidenceLevel;
+}
+
+/**
+ * Full meal-level result. `items` is the source of truth; the top-level
+ * protein_g / calories / etc. are denormalized totals (sum across items)
+ * kept for backward compatibility with callers that don't iterate items.
+ */
+export interface MealEstimate {
+  meal_name: string;
+  items: MealItemEstimate[];
+  // Denormalized totals — equal to sum of items[].* — for legacy callers.
+  protein_g: number;
+  calories: number;
+  carbs_g: number;
+  fat_g: number;
+  // Meal-level confidence = lowest of any item's confidence.
+  confidence: ConfidenceLevel;
+  estimated_portion?: string;
   notes?: string;
   /** Set to "not_a_meal" if the provider determined the image is not food. */
   error?: string;
@@ -38,64 +66,166 @@ export interface AIVisionProvider {
  * Shared system prompt used across providers.
  * Keep this in one place so behavior stays consistent when swapping models.
  *
+ * This is Variant B from the prompt eval. The Step 1/2/3 framing primes
+ * the model to enumerate items before structuring them, which reduced
+ * "merge into one entry" errors significantly in testing.
+ *
  * Scope: anything edible or drinkable counts — not just plated meals.
  * Snacks, candy, drinks, fruit, supplements, packaged-food wrappers all log.
  * Only reject when the photo contains literally no food/drink/packaging.
  */
-export const SYSTEM_PROMPT = `You are LeanScan, a nutrition analyzer that helps people log anything they eat or drink.
+export const SYSTEM_PROMPT = `You are LeanScan, a nutrition analyzer.
 
-Given a photo, identify any edible or drinkable item(s) shown and estimate nutrition for what the user likely consumed. This includes (but is not limited to):
-  - Full meals on plates, bowls, or trays
-  - Snacks: candy, chocolate, chips, nuts, granola bars, cookies, popcorn
-  - Drinks: coffee, tea, juice, soda, milk, beer, wine, protein shakes, smoothies, water-with-mixers
-  - Whole fruits and vegetables (a single banana, an apple, a handful of grapes)
-  - Packaged foods — identify the specific product if branding is visible (e.g. "Fruittella", "KitKat", "Red Bull"), and use the standard per-serving nutrition from its label
-  - Wrappers, bottles, or empty packaging that clearly indicate what was consumed
-  - Multiple distinct items in the same photo — combine them into one entry, summing macros
+Step 1 (silent thinking): Look at the photo. List every DISTINCT edible/drinkable item you can identify. Do NOT include utensils, plates, napkins, or empty wrappers (unless empty wrapper is the clear indicator of what was consumed). Mentally tag each item as "high", "medium", or "low" confidence based on visual clarity.
 
-Always lead with PROTEIN — it is the headline number. Zero protein is a valid answer (most candy and most soda are ~0g protein).
+Step 2: For each item, estimate its portion using visual context (plate size, hand reference, standard packaging dimensions).
 
-For packaged products, use known label values rather than guessing. If the brand/product isn't certain, fall back to a generic estimate and lower the confidence to "low" or "medium".
+Step 3: Output strict JSON. NO commentary, NO chain of thought in the output. Just JSON:
 
-Return ONLY a valid JSON object with this exact shape, no markdown, no commentary:
 {
-  "meal_name": "short descriptive name of the food/drink/item, max 6 words",
-  "estimated_portion": "concise portion description, e.g. '1 piece', '1 can (330ml)', '~150g'",
-  "protein_g": number (integer grams, 0 is valid),
-  "calories": number (integer kcal),
-  "carbs_g": number (integer grams),
-  "fat_g": number (integer grams),
-  "confidence": "low" | "medium" | "high",
-  "notes": "one short sentence — protein tip, label context, or what you assumed about portion size, max 20 words"
+  "meal_name": "short combined name describing the meal, max 6 words",
+  "items": [
+    {
+      "item_name": "name of this item, max 6 words",
+      "estimated_portion": "concise portion, e.g. '2 slices', '1 can (330ml)'",
+      "protein_g": <integer grams, 0 valid>,
+      "calories": <integer kcal>,
+      "carbs_g": <integer grams>,
+      "fat_g": <integer grams>,
+      "confidence": "low" | "medium" | "high"
+    }
+  ],
+  "notes": "one short sentence about your strongest assumption, max 20 words"
 }
 
-Only return error: not_a_meal when the photo contains NO edible item, drink, or recognizable food packaging at all (e.g. a chair, a wall, a person's face, an empty plate, scenery). Do NOT return not_a_meal just because the item is a snack, drink, candy, or single fruit — those are all valid logs.
+Constraints:
+- Always at least 1 item. Single-item photos return an array of one.
+- 1-8 items max. If you see more, group similar ones.
+- Plates, bowls, utensils, napkins, decoration are NOT items.
+- A whole packaged product = 1 item. Do not split "chocolate bar" into "chocolate + wrapper".
+- Beverages always count as items. Coffee with milk = 1 item ("coffee with milk").
+- Sauces/dressings: only as separate item if visually independent (gravy on the side, ketchup blob). Integrated sauces stay with their dish.
+- For packaged products with visible branding, use known label values and mark confidence "high".
+- Items at the edge of frame or partially visible: confidence "low".
+- A single banana = 1 item. Don't split into "banana" + "peel".
+- Always lead with PROTEIN — it is the headline number. Zero protein is valid (most candy, most soda).
 
-When rejecting:
-{"error": "not_a_meal", "meal_name": "Nothing edible", "estimated_portion": "", "protein_g": 0, "calories": 0, "carbs_g": 0, "fat_g": 0, "confidence": "low", "notes": "We couldn't find any food, drink, or food packaging in this photo."}`;
+If the photo contains NO edible item at all, return:
+{
+  "meal_name": "Nothing edible",
+  "items": [{"item_name": "Nothing edible", "estimated_portion": "", "protein_g": 0, "calories": 0, "carbs_g": 0, "fat_g": 0, "confidence": "low"}],
+  "notes": "No food, drink, or packaging visible.",
+  "error": "not_a_meal"
+}`;
 
-/** Normalize and clamp provider output so downstream code never sees wild values. */
-export function normalizeEstimate(raw: unknown): MealEstimate {
-  const obj = (raw ?? {}) as Partial<MealEstimate>;
-  const clamp = (n: unknown, max: number) =>
-    typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n))) : 0;
+// ---------------------------------------------------------------
+// Normalization
+// ---------------------------------------------------------------
+
+function clampInt(n: unknown, max: number): number {
+  return typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n))) : 0;
+}
+
+function pickConfidence(raw: unknown): ConfidenceLevel {
+  return raw === 'low' || raw === 'medium' || raw === 'high' ? raw : 'low';
+}
+
+function normalizeItem(raw: unknown): MealItemEstimate {
+  const obj = (raw ?? {}) as Partial<MealItemEstimate> & {
+    name?: string; // common alias
+  };
   return {
-    meal_name:
-      typeof obj.meal_name === 'string' && obj.meal_name.trim()
-        ? obj.meal_name.trim().slice(0, 120)
-        : 'Unknown meal',
+    item_name:
+      typeof obj.item_name === 'string' && obj.item_name.trim()
+        ? obj.item_name.trim().slice(0, 120)
+        : typeof obj.name === 'string'
+          ? obj.name.trim().slice(0, 120)
+          : 'Unknown item',
     estimated_portion:
       typeof obj.estimated_portion === 'string' ? obj.estimated_portion.slice(0, 120) : undefined,
-    protein_g: clamp(obj.protein_g, 500),
-    calories: clamp(obj.calories, 5000),
-    carbs_g: clamp(obj.carbs_g, 500),
-    fat_g: clamp(obj.fat_g, 500),
-    confidence:
-      obj.confidence === 'low' || obj.confidence === 'medium' || obj.confidence === 'high'
-        ? obj.confidence
-        : 'low',
-    notes: typeof obj.notes === 'string' ? obj.notes.slice(0, 200) : undefined,
-    error: typeof obj.error === 'string' ? obj.error : undefined,
+    protein_g: clampInt(obj.protein_g, 500),
+    calories: clampInt(obj.calories, 5000),
+    carbs_g: clampInt(obj.carbs_g, 500),
+    fat_g: clampInt(obj.fat_g, 500),
+    confidence: pickConfidence(obj.confidence),
+  };
+}
+
+const CONFIDENCE_RANK: Record<ConfidenceLevel, number> = { low: 0, medium: 1, high: 2 };
+function lowestConfidence(items: MealItemEstimate[]): ConfidenceLevel {
+  if (items.length === 0) return 'low';
+  let lowest: ConfidenceLevel = 'high';
+  for (const it of items) {
+    if (CONFIDENCE_RANK[it.confidence] < CONFIDENCE_RANK[lowest]) {
+      lowest = it.confidence;
+    }
+  }
+  return lowest;
+}
+
+/**
+ * Normalize provider output into a MealEstimate. Handles:
+ *
+ *   - New multi-item shape: { meal_name, items: [...], notes, error? }
+ *   - Legacy single-item shape: { meal_name, protein_g, calories, ..., error? }
+ *     — wrapped into a 1-item array so downstream code sees uniform data
+ *   - Rejection shape: { error: "not_a_meal", ... }
+ */
+export function normalizeEstimate(raw: unknown): MealEstimate {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+
+  const mealName =
+    typeof obj.meal_name === 'string' && obj.meal_name.trim()
+      ? obj.meal_name.trim().slice(0, 120)
+      : 'Unknown meal';
+
+  const notes = typeof obj.notes === 'string' ? obj.notes.slice(0, 200) : undefined;
+  const error = typeof obj.error === 'string' ? obj.error : undefined;
+  const estimatedPortion =
+    typeof obj.estimated_portion === 'string' ? obj.estimated_portion.slice(0, 120) : undefined;
+
+  // Multi-item shape (new)
+  let items: MealItemEstimate[];
+  if (Array.isArray(obj.items) && obj.items.length > 0) {
+    items = obj.items.slice(0, 12).map(normalizeItem);
+  } else {
+    // Legacy single-item shape — wrap top-level macros as one item
+    items = [
+      normalizeItem({
+        item_name: mealName,
+        estimated_portion: estimatedPortion,
+        protein_g: obj.protein_g,
+        calories: obj.calories,
+        carbs_g: obj.carbs_g,
+        fat_g: obj.fat_g,
+        confidence: obj.confidence,
+      }),
+    ];
+  }
+
+  // Denormalized totals (sum across items)
+  const totals = items.reduce(
+    (acc, it) => {
+      acc.protein_g += it.protein_g;
+      acc.calories += it.calories;
+      acc.carbs_g += it.carbs_g;
+      acc.fat_g += it.fat_g;
+      return acc;
+    },
+    { protein_g: 0, calories: 0, carbs_g: 0, fat_g: 0 },
+  );
+
+  return {
+    meal_name: mealName,
+    items,
+    protein_g: Math.round(totals.protein_g),
+    calories: Math.round(totals.calories),
+    carbs_g: Math.round(totals.carbs_g),
+    fat_g: Math.round(totals.fat_g),
+    confidence: lowestConfidence(items),
+    estimated_portion: estimatedPortion,
+    notes,
+    error,
   };
 }
 

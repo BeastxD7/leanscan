@@ -70,7 +70,8 @@ export class OpenAIProvider implements AIVisionProvider {
         },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 400,
+      // Bumped from 400 for multi-item output (up to 8 items × ~80 tokens each).
+      max_tokens: 1500,
       temperature: 0.2,
     };
     // Azure URLs already include the deployment; OpenAI needs `model` in the body.
