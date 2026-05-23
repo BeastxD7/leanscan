@@ -1,0 +1,5 @@
+# Local test photos — don't commit user meals
+test-photos/
+
+# Generated eval output — depends on photos, not source of truth
+eval-results/
