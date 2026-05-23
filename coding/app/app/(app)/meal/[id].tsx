@@ -9,10 +9,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 
-import { colors, typography, spacing, radius } from '../../../src/theme';
+import { colors, typography, spacing, radius, fontFamily } from '../../../src/theme';
 import { Button } from '../../../src/components/Input';
 import { ConfirmSheet } from '../../../src/components/ConfirmSheet';
-import { api, API_URL, ApiError, type MealRecord } from '../../../src/lib/api';
+import { api, API_URL, ApiError, type MealRecord, type MealItemRecord } from '../../../src/lib/api';
 import { useAuthStore } from '../../../src/state/auth';
 import { toast } from '../../../src/state/toast';
 
@@ -142,6 +142,18 @@ export default function MealDetail() {
           <Macro label="Fat" value={m.fat_g != null ? `${Math.round(m.fat_g)}` : '—'} unit="g" />
         </View>
 
+        {/* Items breakdown — multi-item meals show their components here */}
+        {m.items.length > 1 && (
+          <View style={styles.itemsSection}>
+            <Text style={styles.itemsHeading}>
+              {m.items.length} ITEMS
+            </Text>
+            {m.items.map((it) => (
+              <ItemRow key={it.id} item={it} />
+            ))}
+          </View>
+        )}
+
         <View style={styles.metaCard}>
           <MetaRow label="Source" value={prettySource(m.source)} />
           {m.confidence ? <MetaRow label="AI confidence" value={m.confidence} /> : null}
@@ -182,6 +194,40 @@ function Macro({ label, value, unit }: { label: string; value: string; unit: str
         {value}
         <Text style={styles.macroUnit}> {unit}</Text>
       </Text>
+    </View>
+  );
+}
+
+function ItemRow({ item }: { item: MealItemRecord }) {
+  const confColor =
+    item.confidence === 'high'
+      ? colors.sage
+      : item.confidence === 'medium'
+        ? colors.amber
+        : item.confidence === 'low'
+          ? colors.muted
+          : 'transparent';
+  return (
+    <View style={styles.itemRow}>
+      <View style={styles.itemLeft}>
+        <View style={[styles.itemConfDot, { backgroundColor: confColor }]} />
+        <View style={styles.itemTextCol}>
+          <Text style={styles.itemName} numberOfLines={1}>
+            {item.item_name}
+          </Text>
+          {!!item.estimated_portion && (
+            <Text style={styles.itemPortion} numberOfLines={1}>
+              {item.estimated_portion}
+            </Text>
+          )}
+        </View>
+      </View>
+      <View style={styles.itemRight}>
+        <Text style={styles.itemProtein}>{Math.round(item.protein_g)}g</Text>
+        {item.calories != null && (
+          <Text style={styles.itemKcal}>{Math.round(item.calories)} kcal</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -277,6 +323,66 @@ const styles = StyleSheet.create({
   macroLabel: { ...typography.eyebrow, color: colors.muted, marginBottom: spacing.xxs },
   macroValue: { color: colors.forest, fontFamily: 'Fraunces_500Medium', fontSize: 22 },
   macroUnit: { ...typography.small, color: colors.muted, fontFamily: 'Manrope_400Regular' },
+
+  itemsSection: {
+    marginHorizontal: spacing.lg,
+    gap: spacing.xs,
+  },
+  itemsHeading: {
+    ...typography.eyebrow,
+    color: colors.muted,
+    marginBottom: spacing.xs,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  itemLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  itemConfDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radius.circle,
+  },
+  itemTextCol: {
+    flex: 1,
+  },
+  itemName: {
+    ...typography.body,
+    color: colors.charcoal,
+    fontFamily: fontFamily.serif,
+    fontSize: 15,
+  },
+  itemPortion: {
+    ...typography.small,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  itemRight: {
+    alignItems: 'flex-end',
+  },
+  itemProtein: {
+    ...typography.bodyMedium,
+    color: colors.forest,
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 15,
+  },
+  itemKcal: {
+    ...typography.small,
+    color: colors.muted,
+    marginTop: 2,
+  },
 
   metaCard: {
     marginHorizontal: spacing.lg,

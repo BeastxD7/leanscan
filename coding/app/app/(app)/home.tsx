@@ -94,11 +94,16 @@ export default function Home() {
     mutationFn: (item: RecentChipItem) =>
       api.saveMeal({
         meal_name: item.meal_name,
-        protein_g: item.protein_g,
-        ...(item.calories != null ? { calories: item.calories } : {}),
-        ...(item.carbs_g != null ? { carbs_g: item.carbs_g } : {}),
-        ...(item.fat_g != null ? { fat_g: item.fat_g } : {}),
-        ...(item.estimated_portion ? { estimated_portion: item.estimated_portion } : {}),
+        items: [
+          {
+            item_name: item.meal_name,
+            estimated_portion: item.estimated_portion ?? undefined,
+            protein_g: item.protein_g,
+            ...(item.calories != null ? { calories: item.calories } : {}),
+            ...(item.carbs_g != null ? { carbs_g: item.carbs_g } : {}),
+            ...(item.fat_g != null ? { fat_g: item.fat_g } : {}),
+          },
+        ],
         source: 'quick_add',
       }),
     onMutate: (item) => setPendingQuickAddId(item.id),

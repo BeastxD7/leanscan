@@ -94,11 +94,16 @@ export default function ManualEntry() {
     mutationFn: () =>
       api.saveMeal({
         meal_name: mealName.trim(),
-        protein_g: Number(proteinG),
-        ...(calories.trim() ? { calories: Math.round(Number(calories)) } : {}),
-        ...(carbsG.trim() ? { carbs_g: Number(carbsG) } : {}),
-        ...(fatG.trim() ? { fat_g: Number(fatG) } : {}),
-        ...(portion.trim() ? { estimated_portion: portion.trim() } : {}),
+        items: [
+          {
+            item_name: mealName.trim(),
+            estimated_portion: portion.trim() || undefined,
+            protein_g: Number(proteinG),
+            ...(calories.trim() ? { calories: Math.round(Number(calories)) } : {}),
+            ...(carbsG.trim() ? { carbs_g: Number(carbsG) } : {}),
+            ...(fatG.trim() ? { fat_g: Number(fatG) } : {}),
+          },
+        ],
         source: 'manual',
       }),
     onSuccess: (result) => {

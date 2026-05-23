@@ -326,16 +326,24 @@ export const api = {
       { silent: true },
     ),
 
+  /**
+   * Save a meal. Multi-item by design — single-item meals just pass an
+   * items array of length 1.
+   */
   saveMeal: (input: {
     meal_name: string;
-    protein_g: number;
-    calories?: number;
-    carbs_g?: number;
-    fat_g?: number;
-    estimated_portion?: string;
+    items: Array<{
+      item_name: string;
+      estimated_portion?: string;
+      protein_g: number;
+      calories?: number;
+      carbs_g?: number;
+      fat_g?: number;
+      confidence?: 'low' | 'medium' | 'high';
+    }>;
     source?: 'photo' | 'manual' | 'quick_add';
     photo_path?: string;
-    confidence?: 'low' | 'medium' | 'high';
+    estimated_portion?: string;
     ai_notes?: string;
     raw_ai_response?: unknown;
     edited_by_user?: boolean;
@@ -345,15 +353,25 @@ export const api = {
       body: input,
     }),
 
+  /**
+   * Patch a meal. Either replaces the items array wholesale, or updates
+   * meal-level fields (name/notes). To edit a single item, send the full
+   * items list with just that one item changed.
+   */
   patchMeal: (
     id: string,
     input: Partial<{
       meal_name: string;
-      protein_g: number;
-      calories: number;
-      carbs_g: number;
-      fat_g: number;
-      estimated_portion: string;
+      ai_notes: string;
+      items: Array<{
+        item_name: string;
+        estimated_portion?: string;
+        protein_g: number;
+        calories?: number;
+        carbs_g?: number;
+        fat_g?: number;
+        confidence?: 'low' | 'medium' | 'high';
+      }>;
     }>,
   ) =>
     requestWithMessage<{ meal: MealRecord }>(`/v1/meals/${id}`, {
@@ -383,12 +401,25 @@ export const api = {
     estimate: {
       meal_name: string;
       estimated_portion?: string;
+      // Denormalized totals (sum across items) — convenience for UI that
+      // wants a single number even before the user opens the items list.
       protein_g: number;
       calories: number;
       carbs_g: number;
       fat_g: number;
       confidence: 'low' | 'medium' | 'high';
       notes?: string;
+      error?: 'not_a_meal' | string;
+      // Per-item breakdown from the AI. Always at least one entry.
+      items: Array<{
+        item_name: string;
+        estimated_portion?: string;
+        protein_g: number;
+        calories: number;
+        carbs_g: number;
+        fat_g: number;
+        confidence: 'low' | 'medium' | 'high';
+      }>;
     };
     credit_balance: number;
     raw_ai_response: unknown;
@@ -466,6 +497,20 @@ export const api = {
     }>('/v1/meals/recent', { silent: true }),
 };
 
+/** One item within a meal (e.g. "fries" in a burger meal). */
+export interface MealItemRecord {
+  id: string;
+  position: number;
+  item_name: string;
+  estimated_portion: string | null;
+  protein_g: number;
+  calories: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  confidence: 'low' | 'medium' | 'high' | null;
+  edited_by_user: boolean;
+}
+
 export interface MealRecord {
   id: string;
   logged_at: string;
@@ -473,6 +518,8 @@ export interface MealRecord {
   meal_name: string;
   estimated_portion: string | null;
   photo_path: string | null;
+  // Denormalized totals — sum across items[]. Kept for callers that just
+  // want the headline number.
   protein_g: number;
   calories: number | null;
   carbs_g: number | null;
@@ -482,4 +529,9 @@ export interface MealRecord {
   ai_notes: string | null;
   edited_by_user: boolean;
   created_at: string;
+  /**
+   * Per-item breakdown. After the multi-item migration, every meal has
+   * at least one item — clients should rely on items.length >= 1.
+   */
+  items: MealItemRecord[];
 }

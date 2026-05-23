@@ -65,50 +65,26 @@ const mealItemInputSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']).optional(),
 });
 
-// Accepts BOTH new multi-item shape and legacy single-item shape.
-// If `items` is present, it wins. Otherwise the top-level macros are
-// promoted into a single MealItem, preserving compat for older clients.
+// Multi-item by design. Single-item meals just pass an items array of
+// length 1. No legacy single-item shape supported — clients must update.
 const saveMealSchema = z.object({
   meal_name: z.string().min(1).max(120),
-
-  // New multi-item path
-  items: z.array(mealItemInputSchema).min(1).max(12).optional(),
-
-  // Legacy single-item path (kept for backward compat — one release cycle)
-  protein_g: z.number().min(0).max(500).optional(),
-  calories: z.number().int().min(0).max(5000).optional(),
-  carbs_g: z.number().min(0).max(500).optional(),
-  fat_g: z.number().min(0).max(500).optional(),
+  items: z.array(mealItemInputSchema).min(1).max(12),
   estimated_portion: z.string().max(120).optional(),
-  confidence: z.enum(['low', 'medium', 'high']).optional(),
-
   source: z.enum(['photo', 'manual', 'quick_add']).default('manual'),
   photo_path: z.string().max(300).optional(),
   ai_notes: z.string().max(500).optional(),
   raw_ai_response: z.unknown().optional(),
   edited_by_user: z.boolean().optional(),
   logged_at: z.string().datetime().optional(),
-}).refine(
-  (data) => data.items !== undefined || data.protein_g !== undefined,
-  { message: 'Provide either `items` (multi-item) or top-level `protein_g` (legacy single-item)' },
-);
+});
 
 const patchMealSchema = z.object({
-  // Meal-level edits
   meal_name: z.string().min(1).max(120).optional(),
   ai_notes: z.string().max(500).optional(),
-
-  // Items replacement — if present, REPLACES the entire items list for
-  // this meal. Totals are recomputed.
+  // Items replacement — REPLACES the entire items list for this meal.
+  // Totals are recomputed server-side.
   items: z.array(mealItemInputSchema).min(1).max(12).optional(),
-
-  // Legacy macro patches — apply to the single item if exactly one exists.
-  // For multi-item meals these are ignored (use `items` instead).
-  protein_g: z.number().min(0).max(500).optional(),
-  calories: z.number().int().min(0).max(5000).optional(),
-  carbs_g: z.number().min(0).max(500).optional(),
-  fat_g: z.number().min(0).max(500).optional(),
-  estimated_portion: z.string().max(120).optional(),
 });
 
 const dateQuerySchema = z.object({
@@ -266,43 +242,6 @@ function aggregateItems(
   return { ...totals, confidence };
 }
 
-/**
- * Normalize the input into a list of items, regardless of whether the
- * client sent multi-item (`items: [...]`) or legacy single-item shape.
- * Always returns at least one item.
- */
-function inputToItems(input: {
-  meal_name: string;
-  items?: Array<{
-    item_name: string;
-    estimated_portion?: string;
-    protein_g: number;
-    calories?: number;
-    carbs_g?: number;
-    fat_g?: number;
-    confidence?: 'low' | 'medium' | 'high';
-  }>;
-  estimated_portion?: string;
-  protein_g?: number;
-  calories?: number;
-  carbs_g?: number;
-  fat_g?: number;
-  confidence?: 'low' | 'medium' | 'high';
-}) {
-  if (input.items && input.items.length > 0) return input.items;
-  // Legacy: promote top-level macros into a single item.
-  return [
-    {
-      item_name: input.meal_name,
-      estimated_portion: input.estimated_portion,
-      protein_g: input.protein_g ?? 0,
-      calories: input.calories,
-      carbs_g: input.carbs_g,
-      fat_g: input.fat_g,
-      confidence: input.confidence,
-    },
-  ];
-}
 
 // =============================================================
 // POST /v1/meals/photo — analyze (does NOT save)
@@ -384,9 +323,7 @@ mealsRouter.post(
       Date.UTC(loggedAt.getUTCFullYear(), loggedAt.getUTCMonth(), loggedAt.getUTCDate()),
     );
 
-    // Normalize legacy single-item shape into items[]
-    const items = inputToItems(input);
-    const totals = aggregateItems(items);
+    const totals = aggregateItems(input.items);
 
     // Create the meal + child MealItems atomically.
     const meal = await prisma.meal.create({
@@ -403,12 +340,12 @@ mealsRouter.post(
         carbsG: totals.carbs_g,
         fatG: totals.fat_g,
         source: input.source,
-        confidence: totals.confidence ?? input.confidence ?? null,
+        confidence: totals.confidence,
         aiNotes: input.ai_notes,
         rawAiResponse: input.raw_ai_response as never,
         editedByUser: input.edited_by_user ?? false,
         items: {
-          create: items.map((it, i) => ({
+          create: input.items.map((it, i) => ({
             position: i,
             itemName: it.item_name,
             estimatedPortion: it.estimated_portion,
@@ -645,15 +582,12 @@ mealsRouter.patch(
 
     const existing = await prisma.meal.findFirst({
       where: { id, userId, deletedAt: null },
-      select: {
-        id: true,
-        items: { select: { id: true, position: true, itemName: true, estimatedPortion: true, proteinG: true, calories: true, carbsG: true, fatG: true, confidence: true } },
-      },
+      select: { id: true },
     });
     if (!existing) throw new HttpError(404, 'meal_not_found', 'Meal not found.');
 
     const meal = await prisma.$transaction(async (tx) => {
-      // Items replacement path — wipes existing items and recreates from input.
+      // Items replacement: wipe existing items, create new ones, recompute totals.
       if (input.items) {
         const totals = aggregateItems(input.items);
         await tx.mealItem.deleteMany({ where: { mealId: id } });
@@ -681,52 +615,6 @@ mealsRouter.patch(
           confidence: totals.confidence,
         };
         if (input.meal_name !== undefined) updates.mealName = input.meal_name;
-        if (input.ai_notes !== undefined) updates.aiNotes = input.ai_notes;
-        return tx.meal.update({ where: { id }, data: updates, select: MEAL_SELECT });
-      }
-
-      // Legacy macro patch — only meaningful when meal has exactly one item.
-      // We update that item AND the denormalized totals on Meal.
-      const hasLegacyMacros =
-        input.protein_g !== undefined ||
-        input.calories !== undefined ||
-        input.carbs_g !== undefined ||
-        input.fat_g !== undefined ||
-        input.estimated_portion !== undefined;
-
-      if (hasLegacyMacros && existing.items.length === 1) {
-        const it = existing.items[0];
-        const patched = {
-          item_name: it.itemName,
-          estimated_portion:
-            input.estimated_portion !== undefined ? input.estimated_portion : it.estimatedPortion ?? undefined,
-          protein_g: input.protein_g !== undefined ? input.protein_g : Number(it.proteinG),
-          calories: input.calories !== undefined ? input.calories : it.calories ?? undefined,
-          carbs_g: input.carbs_g !== undefined ? input.carbs_g : it.carbsG ? Number(it.carbsG) : undefined,
-          fat_g: input.fat_g !== undefined ? input.fat_g : it.fatG ? Number(it.fatG) : undefined,
-          confidence: (it.confidence as 'low' | 'medium' | 'high' | null) ?? undefined,
-        };
-        await tx.mealItem.update({
-          where: { id: it.id },
-          data: {
-            estimatedPortion: patched.estimated_portion,
-            proteinG: patched.protein_g,
-            calories: patched.calories,
-            carbsG: patched.carbs_g,
-            fatG: patched.fat_g,
-            editedByUser: true,
-          },
-        });
-        const totals = aggregateItems([patched]);
-        const updates: Record<string, unknown> = {
-          editedByUser: true,
-          proteinG: totals.protein_g,
-          calories: totals.calories,
-          carbsG: totals.carbs_g,
-          fatG: totals.fat_g,
-        };
-        if (input.meal_name !== undefined) updates.mealName = input.meal_name;
-        if (input.estimated_portion !== undefined) updates.estimatedPortion = input.estimated_portion;
         if (input.ai_notes !== undefined) updates.aiNotes = input.ai_notes;
         return tx.meal.update({ where: { id }, data: updates, select: MEAL_SELECT });
       }
