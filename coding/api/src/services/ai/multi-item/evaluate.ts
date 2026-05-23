@@ -39,6 +39,8 @@ import { readdir, readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { join, basename, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+
 import {
   VARIANT_A_PROMPT,
   VARIANT_B_PROMPT,
@@ -63,10 +65,99 @@ const PHOTOS_DIR = arg('photos', join(__dirname, 'test-photos'))!;
 const OUTPUT_DIR = arg('output', join(__dirname, 'eval-results'))!;
 
 // ---------------------------------------------------------------
-// Provider — Gemini direct fetch (matches coding/api/src/services/ai/gemini.ts)
+// Providers — Gemini direct fetch + Bedrock SDK
 // ---------------------------------------------------------------
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash';
+
+const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1';
+const BEDROCK_MODEL_ID =
+  process.env.BEDROCK_MODEL_ID ?? 'global.anthropic.claude-sonnet-4-6';
+
+let bedrockClient: BedrockRuntimeClient | null = null;
+function getBedrockClient(): BedrockRuntimeClient {
+  if (!bedrockClient) {
+    bedrockClient = new BedrockRuntimeClient({
+      region: AWS_REGION,
+      ...(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+        ? {
+            credentials: {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+              ...(process.env.AWS_SESSION_TOKEN
+                ? { sessionToken: process.env.AWS_SESSION_TOKEN }
+                : {}),
+            },
+          }
+        : {}),
+    });
+  }
+  return bedrockClient;
+}
+
+async function callBedrock(opts: {
+  systemPrompt: string;
+  userText: string;
+  imageBuffer?: Buffer;
+  mimeType?: string;
+  maxOutputTokens?: number;
+}): Promise<{ text: string; latency_ms: number; rawResponse: unknown }> {
+  const content: Array<Record<string, unknown>> = [];
+  if (opts.imageBuffer && opts.mimeType) {
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: opts.mimeType,
+        data: opts.imageBuffer.toString('base64'),
+      },
+    });
+  }
+  content.push({ type: 'text', text: opts.userText });
+
+  const body = {
+    anthropic_version: 'bedrock-2023-05-31',
+    max_tokens: opts.maxOutputTokens ?? 1200,
+    temperature: 0.2,
+    system: opts.systemPrompt,
+    messages: [{ role: 'user', content }],
+  };
+
+  const cmd = new InvokeModelCommand({
+    modelId: BEDROCK_MODEL_ID,
+    contentType: 'application/json',
+    accept: 'application/json',
+    body: JSON.stringify(body),
+  });
+
+  const start = Date.now();
+  const response = await getBedrockClient().send(cmd);
+  const latency_ms = Date.now() - start;
+
+  const raw = JSON.parse(new TextDecoder().decode(response.body)) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const text = raw.content?.find((c) => c.type === 'text')?.text?.trim() ?? '';
+  return { text, latency_ms, rawResponse: raw };
+}
+
+// Rate limiting: free tier is 5 RPM for gemini-2.5-flash.
+// We pace at MIN_GAP_MS between call starts to stay comfortably under.
+const MIN_GAP_MS = 13_000; // ~4.6 RPM
+let lastCallAt = 0;
+
+async function paceGate(): Promise<void> {
+  const since = Date.now() - lastCallAt;
+  if (since < MIN_GAP_MS) {
+    const wait = MIN_GAP_MS - since;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  lastCallAt = Date.now();
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function callGemini(opts: {
   systemPrompt: string;
@@ -75,10 +166,13 @@ async function callGemini(opts: {
   mimeType?: string;
   responseJson: boolean;
   maxOutputTokens?: number;
+  _retry?: boolean;
 }): Promise<{ text: string; latency_ms: number; rawResponse: unknown }> {
   if (!GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY not set. Add to coding/api/.env');
   }
+  await paceGate();
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
 
   const parts: Array<Record<string, unknown>> = [{ text: opts.userText }];
@@ -112,10 +206,22 @@ async function callGemini(opts: {
 
   const raw = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    error?: { message?: string };
+    error?: {
+      message?: string;
+      details?: Array<{ retryDelay?: string }>;
+    };
   };
 
   if (!res.ok) {
+    // On 429, parse retryDelay and back off once
+    if (res.status === 429 && !opts._retry) {
+      const retryStr = raw.error?.details?.find((d) => d.retryDelay)?.retryDelay;
+      const waitSec = retryStr ? parseInt(retryStr, 10) : 30;
+      const ms = Math.max(15_000, (Number.isFinite(waitSec) ? waitSec : 30) * 1000 + 2000);
+      console.log(`      [429 — waiting ${Math.round(ms / 1000)}s then retrying]`);
+      await sleep(ms);
+      return callGemini({ ...opts, _retry: true });
+    }
     throw new Error(`Gemini ${res.status}: ${raw.error?.message ?? 'unknown'}`);
   }
 
@@ -148,8 +254,23 @@ interface VariantResult {
   item_count?: number;
 }
 
+// Generic caller — picks provider based on global PROVIDER setting
+async function callProvider(opts: {
+  systemPrompt: string;
+  userText: string;
+  imageBuffer?: Buffer;
+  mimeType?: string;
+  responseJson: boolean;
+  maxOutputTokens?: number;
+}): Promise<{ text: string; latency_ms: number; rawResponse: unknown }> {
+  if (PROVIDER === 'bedrock') {
+    return callBedrock(opts);
+  }
+  return callGemini(opts);
+}
+
 async function runVariantA(imageBuffer: Buffer, mimeType: string): Promise<VariantResult> {
-  const { text, latency_ms } = await callGemini({
+  const { text, latency_ms } = await callProvider({
     systemPrompt: VARIANT_A_PROMPT,
     userText: 'Analyze this meal. Return JSON only.',
     imageBuffer,
@@ -174,7 +295,7 @@ async function runVariantA(imageBuffer: Buffer, mimeType: string): Promise<Varia
 }
 
 async function runVariantB(imageBuffer: Buffer, mimeType: string): Promise<VariantResult> {
-  const { text, latency_ms } = await callGemini({
+  const { text, latency_ms } = await callProvider({
     systemPrompt: VARIANT_B_PROMPT,
     userText: 'Analyze this meal. Follow the 3-step process. Return JSON only.',
     imageBuffer,
@@ -200,7 +321,7 @@ async function runVariantB(imageBuffer: Buffer, mimeType: string): Promise<Varia
 
 async function runVariantC(imageBuffer: Buffer, mimeType: string): Promise<VariantResult> {
   // Pass 1 — enumerate items in plain text
-  const pass1 = await callGemini({
+  const pass1 = await callProvider({
     systemPrompt: VARIANT_C_PASS1_PROMPT,
     userText: 'Analyze this photo. List items only.',
     imageBuffer,
@@ -210,7 +331,7 @@ async function runVariantC(imageBuffer: Buffer, mimeType: string): Promise<Varia
   });
 
   // Pass 2 — estimate macros (text-only, no image)
-  const pass2 = await callGemini({
+  const pass2 = await callProvider({
     systemPrompt: variantCPass2Prompt(pass1.text.trim()),
     userText: 'Return JSON only with macros for the items above.',
     responseJson: true,
@@ -344,7 +465,7 @@ async function main() {
   console.log(`Eval setup:`);
   console.log(`  variants:  ${VARIANTS.join(', ')}`);
   console.log(`  provider:  ${PROVIDER}`);
-  console.log(`  model:     ${GEMINI_MODEL}`);
+  console.log(`  model:     ${PROVIDER === 'bedrock' ? BEDROCK_MODEL_ID : GEMINI_MODEL}`);
   console.log(`  photos:    ${PHOTOS_DIR}`);
   console.log(`  output:    ${OUTPUT_DIR}`);
   console.log('');
